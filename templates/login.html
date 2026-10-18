@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Management System | Sign in</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Epunda+Sans:wght@400;500;600;700&family=Epunda+Slab:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <header class="login-heading">
+      <div class="brand-mark">IQRA <small>UNIVERSITY</small></div>
+      <h1>Student Management System</h1>
+      <p>Sign in to access your campus portal</p>
+    </header>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+      <p class="flash-message {{ category }}" role="status">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
+    <p class="login-note">Choose email or username to sign in. Your account role is assigned by the system administrator.</p>
+    <form class="login-form" action="{{ url_for('login_submit') }}" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="login-method">Sign in with</label>
+      <select id="login-method" name="login_method" required>
+        <option value="email">Email</option>
+        <option value="username">Username</option>
+      </select>
+      <label class="visually-hidden" for="identifier" id="identifier-label">Email address</label>
+      <input id="identifier" name="identifier" type="email" placeholder="Email address" autocomplete="username" required>
+      <label class="visually-hidden" for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button class="button-primary" type="submit">Log in</button>
+    </form>
+    <script>
+      const loginMethod = document.querySelector("#login-method");
+      const identifier = document.querySelector("#identifier");
+      const identifierLabel = document.querySelector("#identifier-label");
+      loginMethod.addEventListener("change", () => {
+        const useUsername = loginMethod.value === "username";
+        identifier.type = useUsername ? "text" : "email";
+        identifier.placeholder = useUsername ? "Username" : "Email address";
+        identifierLabel.textContent = useUsername ? "Username" : "Email address";
+      });
+    </script>
+    <div class="login-divider"></div>
+    <form class="reset-form" action="{{ url_for('password_reset') }}" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="reset-email">Forgot your password?</label>
+      <div class="reset-row">
+        <input id="reset-email" name="email" type="email" placeholder="Your account email" required>
+        <button type="submit">Send reset link</button>
+      </div>
+    </form>
+    <p class="login-footnote">New campus accounts are created and assigned a role by an administrator.</p>
+  </main>
+</body>
+</html>

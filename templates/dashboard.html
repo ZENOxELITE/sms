@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Management System | Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Epunda+Sans:wght@400;500;600;700&family=Epunda+Slab:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="dashboard-page">
+  <header class="topbar">
+    <button class="menu-button" type="button" aria-label="Menu">☰</button>
+    <div class="brand-mark top-brand">IQRA <small>UNIVERSITY</small></div>
+    <span class="site-title">Student Management System</span>
+    <div class="top-actions"><span class="top-icon">⛶</span><span class="notification">2</span><a href="/">Aman A.</a></div>
+  </header>
+
+  <div class="breadcrumb"><span>⌂</span><span>›</span> Dashboard</div>
+  <div class="dashboard-layout">
+    <aside class="sidebar">
+      <section class="student-profile">
+        <div class="avatar">A</div>
+        <strong>Aman Ahmed Sheikh</strong>
+        <small>IU2-0324-972</small>
+      </section>
+      <nav class="side-nav" aria-label="Main navigation">
+        <a class="selected" href="#"><span>D</span>Dashboard</a>
+        <a href="#"><span>P</span>Profile</a>
+        <a href="#"><span>A</span>Attendance</a>
+        <a href="#"><span>R</span>Results &amp; Exams <b>⌄</b></a>
+        <a href="#"><span>E</span>Exam Datasheet</a>
+        <a href="#"><span>N</span>Notifications</a>
+        <a href="#"><span>F</span>Feedback <b>⌄</b></a>
+        <a href="#"><span>T</span>Time Table</a>
+        <a href="#"><span>I</span>Invoices</a>
+        <a href="#"><span>C</span>Complaints</a>
+      </nav>
+    </aside>
+
+    <main class="dashboard-content">
+      <section class="section-block">
+        <h2>ACADEMICS</h2>
+        <article class="academic-card">
+          <div class="academic-name">
+            <strong>Aman Ahmed Sheikh</strong>
+            <span>IU2-0324-972</span>
+            <span>Faculty of Business Administration</span>
+            <em>Promoted</em>
+          </div>
+          <div class="academic-stat"><span>ACADEMIC STANDING:</span><strong>CGPA: 2.71</strong></div>
+          <div class="academic-stat"><span>Earned Cr: <strong>48.0</strong></span><span>Total Cr: <strong>0.0</strong></span><span>Inprogress Cr: <strong>17.0</strong></span></div>
+          <div class="term-card"><strong>TODAY CLASSES</strong><span>BUSINESS ANALYTICS: 18:30 Hrs - 21:30 Hrs.</span></div>
+        </article>
+      </section>
+
+      <section class="section-block">
+        <h2>CLASSES, GRADES AND ATTENDANCE</h2>
+        <div class="class-grid">
+          <article class="class-card"><h3>ISLAMIC STUDIES</h3><div class="class-info"><strong>Umair</strong><span>HIT221 | Credits: 2.0 Active Class</span><div class="attendance"><span>Attendance:</span><b>100% &nbsp; IU2 FALL-24</b></div></div></article>
+          <article class="class-card"><h3>FINANCIAL ACCOUNTING</h3><div class="class-info"><strong>Saleem Sundhai</strong><span>BUS231 | Credits: 3.0 Active Class</span><div class="attendance"><span>Attendance:</span><b>100% &nbsp; IU2 FALL-24</b></div></div></article>
+          <article class="class-card"><h3>BUSINESS ANALYTICS</h3><div class="class-info"><strong>Syed Jamal Haider Zaidi</strong><span>BUS351 | Credits: 3.0 Active Class</span><div class="attendance"><span>Attendance:</span><b>100% &nbsp; IU2 FALL-24</b></div></div></article>
+          <article class="class-card"><h3>OPERATIONS MANAGEMENT</h3><div class="class-info"><strong>Muhammad Adeel</strong><span>BUS385 | Credits: 3.0 Active Class</span><div class="attendance"><span>Attendance:</span><b>0% &nbsp; IU2 FALL-24</b></div></div></article>
+          <article class="class-card"><h3>ARTIFICIAL INTELLIGENCE</h3><div class="class-info"><strong>Hira Farman</strong><span>BAN201 | Credits: 3.0 Active Class</span><div class="attendance"><span>Attendance:</span><b>100% &nbsp; IU2 FALL-24</b></div></div></article>
+          <article class="class-card"><h3>ACADEMIC &amp; PROFESSIONAL SKILLS</h3><div class="class-info"><strong>SYED QAISER HUSSAIN</strong><span>HUM121 | Credits: 3.0 Active Class</span><div class="attendance"><span>Attendance:</span><b>100% &nbsp; IU2 FALL-24</b></div></div></article>
+        </div>
+      </section>
+
+      <section class="section-block news-section">
+        <h2>NEWS AND ANNOUNCEMENTS</h2>
+        <div class="news-grid">
+          <article class="news-card"><header><span>IQRA UNIVERSITY</span><b>IU</b></header><p>Extension of Tuition Fee and Registration Fee Payment Deadline to 18th October 2024</p><time>2024-10-12 09:21</time></article>
+          <article class="news-card"><header><span>IQRA UNIVERSITY</span><b>IU</b></header><p><small>NOTIFICATION</small><br>Academic Calendar - Fall 2024</p><time>2024-09-08 04:53</time></article>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
