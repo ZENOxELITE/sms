@@ -47,7 +47,7 @@ window.mindmapData = {
       ] }
     ] },
     { name: "Application", type: "group", children: [
-      { name: "Flask routes", type: "page" }, { name: "HTML templates", type: "page" },
+      { name: "FastAPI routes", type: "page" }, { name: "HTML templates", type: "page" },
       { name: "CSS styling", type: "page" }, { name: "Supabase database", type: "page" }
     ] }
   ]

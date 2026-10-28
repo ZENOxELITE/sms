@@ -1,22 +1,40 @@
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
+CURRICULUM_PROGRAMS = (
+    "BS Cyber Security Technology",
+    "BS Software Engineering",
+    "BS Software Engineering Technology",
+)
+
 
 def _read(client, table, columns="*"):
-    response = client.table(table).select(columns).limit(200).execute()
-    return response.data
+    return _read_filtered(client, table, columns)
+
+
+def _read_filtered(client, table, columns="*", filters=()):
+    rows = []
+    offset = 0
+    page_size = 200
+    while True:
+        query = client.table(table).select(columns)
+        for operator, column, value in filters:
+            query = getattr(query, operator)(column, value)
+        response = query.range(offset, offset + page_size - 1).execute()
+        rows.extend(response.data)
+        if len(response.data) < page_size:
+            return rows
+        offset += page_size
 
 
 def _where(client, table, column, value, columns="*"):
-    response = client.table(table).select(columns).eq(column, value).limit(200).execute()
-    return response.data
+    return _read_filtered(client, table, columns, (("eq", column, value),))
 
 
 def _in(client, table, column, values, columns="*"):
     if not values:
         return []
-    response = client.table(table).select(columns).in_(column, values).limit(200).execute()
-    return response.data
+    return _read_filtered(client, table, columns, (("in_", column, values),))
 
 
 def _parallel_reads(client, *queries):
@@ -28,10 +46,19 @@ def _parallel_reads(client, *queries):
         return [future.result() for future in futures]
 
 
-def _parallel_execute(*queries):
+def _parallel_filtered_reads(client, *queries):
     with ThreadPoolExecutor(max_workers=len(queries)) as executor:
-        futures = [executor.submit(query.execute) for query in queries]
-        return [future.result().data for future in futures]
+        futures = [
+            executor.submit(
+                _read_filtered,
+                client,
+                table,
+                columns,
+                filters,
+            )
+            for table, columns, filters in queries
+        ]
+        return [future.result() for future in futures]
 
 
 def _table(page, title, columns, records):
@@ -83,6 +110,11 @@ def build_live_page(role, section, profile, client):
         "form_fields": [],
         "form_title": "",
     }
+    if profile.get("is_demo"):
+        page["record_note"] = (
+            "This login belongs to a synthetic presentation account. "
+            "Its records are for demonstration and are not real student or staff data."
+        )
     uid = profile["id"]
     if section == "profile":
         page["title"] = "Student profile"
@@ -91,6 +123,8 @@ def build_live_page(role, section, profile, client):
             ("Name", profile.get("full_name") or ""),
             ("Student ID", profile.get("student_number") or "Not assigned"),
             ("Department", profile.get("department") or "Not assigned"),
+            ("Program", profile.get("program") or "Not assigned"),
+            ("Semester", str(profile["semester"]) if profile.get("semester") else "Not assigned"),
         ]
         return page
 
@@ -121,9 +155,10 @@ def build_live_page(role, section, profile, client):
                 ]
         elif section == "attendance":
             if course_ids:
-                sessions, records = _parallel_execute(
-                    client.table("class_sessions").select("*").in_("course_id", course_ids).limit(200),
-                    client.table("attendance_records").select("*").eq("student_id", uid).limit(200),
+                sessions, records = _parallel_filtered_reads(
+                    client,
+                    ("class_sessions", "*", (("in_", "course_id", course_ids),)),
+                    ("attendance_records", "*", (("eq", "student_id", uid),)),
                 )
             else:
                 sessions, records = [], []
@@ -213,6 +248,17 @@ def build_live_page(role, section, profile, client):
     department = profile.get("department")
     if role == "hod":
         courses = _where(client, "courses", "department", department) if department else []
+        if not courses:
+            if department:
+                page["record_note"] = (
+                    f"No courses are assigned to the {department} department. "
+                    "Course and enrollment visibility requires courses to use the same department name as your HOD account."
+                )
+            else:
+                page["record_note"] = (
+                    "No department is assigned to this HOD account. "
+                    "Ask an administrator to assign a department before reviewing courses and enrollments."
+                )
         ids = [item["id"] for item in courses]
         if section in ("dashboard", "department"):
             enrollments = _in(client, "enrollments", "course_id", ids)
@@ -231,22 +277,42 @@ def build_live_page(role, section, profile, client):
             if section == "users":
                 profiles, departments = _parallel_reads(
                     client,
-                    ("profiles", "id,full_name,username,role,department,student_number"),
+                    ("profiles", "id,full_name,username,role,department,student_number,program,semester,is_demo"),
                     ("departments", "name"),
                 )
+            elif section == "dashboard":
+                profiles, courses = _parallel_reads(
+                    client,
+                    ("profiles", "id,full_name,username,role,department,student_number,program,semester,is_demo"),
+                    ("courses", "id,is_sample,is_demo"),
+                )
             else:
-                profiles = _read(client, "profiles", "id,full_name,username,role,department,student_number")
-            _table(page, "Campus accounts", ["Name", "Username", "Role", "Department", "Student ID"],
+                profiles = _read(client, "profiles", "id,full_name,username,role,department,student_number,program,semester,is_demo")
+            _table(page, "Campus accounts", ["Name", "Username", "Role", "Department", "Student ID", "Program", "Semester", "Record type"],
                    [[item.get("full_name", ""), item.get("username") or "", item.get("role", ""),
                      item.get("department") or "",
-                     item.get("student_number") or ""] for item in profiles])
+                     item.get("student_number") or "", item.get("program") or "",
+                     item.get("semester") or "",
+                     "Synthetic sample" if item.get("is_demo") else "Campus record"]
+                    for item in profiles])
+            if section == "users":
+                page["row_actions"] = [
+                    item["id"] if item.get("role") in ("student", "teacher", "hod")
+                    and item.get("id") != profile.get("id") else None
+                    for item in profiles
+                ]
+                page["row_action_name"] = "Remove"
+                page["row_action_field"] = "profile_id"
+                page["row_action"] = "delete-account"
+                page["row_action_confirm"] = (
+                    "Permanently remove this account and its linked records?"
+                )
             if section == "dashboard":
-                courses = _read(client, "courses", "id")
                 page["title"] = "Dashboard"
                 page["metrics"] = [
                     ("Student accounts", str(sum(item.get("role") == "student" for item in profiles))),
                     ("Staff accounts", str(sum(item.get("role") in ("teacher", "hod", "admin") for item in profiles))),
-                    ("Courses", str(len(courses))),
+                    ("Courses", str(sum(not item.get("is_sample") for item in courses))),
                 ]
             else:
                 page["form_title"] = "Create a campus account"
@@ -263,6 +329,10 @@ def build_live_page(role, section, profile, client):
                      "options": [(item["name"], item["name"]) for item in departments]},
                     {"name": "student_number", "label": "Student number (students only)", "type": "text",
                      "required": False},
+                    {"name": "program", "label": "Program (students only, optional)", "type": "select",
+                     "options": [(item, item) for item in CURRICULUM_PROGRAMS]},
+                    {"name": "semester", "label": "Semester (students only, optional)", "type": "select",
+                     "options": [(str(item), f"Semester {item}") for item in range(1, 9)]},
                 ]
                 page["form_ready"] = bool(departments)
                 if not departments:
@@ -272,6 +342,11 @@ def build_live_page(role, section, profile, client):
             departments = _read(client, "departments", "name,created_at")
             _table(page, "Departments", ["Department", "Added"],
                    [[item.get("name", ""), _date(item.get("created_at"))] for item in departments])
+            page["row_actions"] = [item["name"] for item in departments]
+            page["row_action_name"] = "Remove"
+            page["row_action_field"] = "department_name"
+            page["row_action"] = "delete-department"
+            page["row_action_confirm"] = "Remove this department?"
             page["form_title"] = "Add a department"
             page["form_action"] = "add-department"
             page["form_fields"] = [
@@ -280,30 +355,57 @@ def build_live_page(role, section, profile, client):
         elif section == "courses":
             courses, departments, profiles = _parallel_reads(
                 client,
-                ("courses", "id,name,code,department,credits"),
+                ("courses", "id,name,code,department,credits,program,semester,is_sample,is_demo"),
                 ("departments", "name"),
                 ("profiles", "id,full_name,role,student_number"),
             )
-            _table(page, "Courses", ["Course", "Code", "Department", "Credits"],
-                   [[item.get("name", ""), item.get("code", ""), item.get("department", ""), item.get("credits", "")]
-                    for item in courses])
+            _table(
+                page,
+                "Courses and sample curricula",
+                ["Course", "Code", "Program", "Semester", "Department", "Credits", "Entry type"],
+                [[
+                    item.get("name", ""),
+                    item.get("code", ""),
+                    item.get("program") or "-",
+                    f'Semester {item["semester"]}' if item.get("semester") else "-",
+                    item.get("department", ""),
+                    item.get("credits", ""),
+                    "Sample curriculum (unofficial)" if item.get("is_sample")
+                    else "Synthetic presentation sample" if item.get("is_demo")
+                    else "Campus course",
+                ] for item in courses],
+            )
+            page["curriculum_note"] = (
+                "Sample curriculum entries are illustrative only, not official or complete Ziauddin study schemes. "
+                "They are excluded from class scheduling, teacher assignment, and student enrollment. "
+                "Synthetic presentation records are fictional, not real campus data."
+            )
             page["form_title"] = "Add a course"
             page["form_action"] = "add-course"
             page["form_fields"] = [
                 {"name": "name", "label": "Course name", "type": "text", "required": True},
                 {"name": "code", "label": "Course code", "type": "text", "required": True},
+                {"name": "program", "label": "Program (optional)", "type": "select",
+                 "options": [(item, item) for item in CURRICULUM_PROGRAMS]},
+                {"name": "semester", "label": "Semester (required with a program)", "type": "select",
+                 "options": [(str(item), f"Semester {item}") for item in range(1, 9)]},
                 {"name": "department", "label": "Department", "type": "select", "required": True,
                  "options": [(item["name"], item["name"]) for item in departments]},
                 {"name": "credits", "label": "Credits", "type": "number", "required": True},
             ]
             students = [item for item in profiles if item.get("role") == "student"]
             teachers = [item for item in profiles if item.get("role") == "teacher"]
-            course_options = [(str(item["id"]), f'{item["code"]} - {item["name"]}') for item in courses]
+            active_courses = [item for item in courses if not item.get("is_sample")]
+            course_options = [
+                (str(item["id"]), f'{item["code"]} - {item["name"]}'
+                 + (" (synthetic sample)" if item.get("is_demo") else ""))
+                for item in active_courses
+            ]
             page["extra_forms"] = [
                 {
                     "title": "Schedule a class",
                     "action": "add-session",
-                    "ready": bool(courses),
+                    "ready": bool(active_courses),
                     "fields": [
                         {"name": "course_id", "label": "Course", "type": "select", "required": True, "options": course_options},
                         {"name": "starts_at", "label": "Starts", "type": "datetime-local", "required": True},
@@ -314,7 +416,7 @@ def build_live_page(role, section, profile, client):
                 {
                     "title": "Schedule an exam",
                     "action": "add-exam",
-                    "ready": bool(courses),
+                    "ready": bool(active_courses),
                     "fields": [
                         {"name": "course_id", "label": "Course", "type": "select", "required": True, "options": course_options},
                         {"name": "title", "label": "Exam name", "type": "text", "required": True},
@@ -327,7 +429,7 @@ def build_live_page(role, section, profile, client):
                 {
                     "title": "Assign a teacher",
                     "action": "assign-teacher",
-                    "ready": bool(courses and teachers),
+                    "ready": bool(active_courses and teachers),
                     "fields": [
                         {"name": "course_id", "label": "Course", "type": "select", "required": True, "options": course_options},
                         {"name": "profile_id", "label": "Teacher", "type": "select", "required": True,
@@ -337,7 +439,7 @@ def build_live_page(role, section, profile, client):
                 {
                     "title": "Enroll a student",
                     "action": "enroll-student",
-                    "ready": bool(courses and students),
+                    "ready": bool(active_courses and students),
                     "fields": [
                         {"name": "course_id", "label": "Course", "type": "select", "required": True, "options": course_options},
                         {"name": "student_id", "label": "Student", "type": "select", "required": True,

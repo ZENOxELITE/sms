@@ -6,13 +6,23 @@ Deno.serve(async (request) => {
   }
 
   const authorization = request.headers.get("Authorization") ?? "";
-  const accessToken = authorization.startsWith("Bearer ")
+  const authorizationToken = authorization.startsWith("Bearer ")
     ? authorization.slice("Bearer ".length)
     : "";
+  const accessToken = authorizationToken ||
+    request.headers.get("X-Supabase-User-Access-Token")?.trim() ||
+    "";
   const url = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !serviceRoleKey || !accessToken) {
-    return Response.json({ error: "Account creation is not configured" }, { status: 500 });
+  if (!url || !serviceRoleKey) {
+    return Response.json({
+      error: "Account creation is not configured in Supabase Edge Function secrets",
+    }, { status: 500 });
+  }
+  if (!accessToken) {
+    return Response.json({
+      error: "A signed-in Supabase session is required",
+    }, { status: 401 });
   }
 
   const supabase = createClient(url, serviceRoleKey, {
@@ -52,6 +62,15 @@ Deno.serve(async (request) => {
   const studentNumber = typeof payload.student_number === "string"
     ? payload.student_number.trim()
     : "";
+  const program = typeof payload.program === "string" ? payload.program.trim() : "";
+  const semesterValue = payload.semester === undefined || payload.semester === null
+    ? ""
+    : String(payload.semester);
+  const programs = [
+    "BS Cyber Security Technology",
+    "BS Software Engineering",
+    "BS Software Engineering Technology",
+  ];
 
   if (
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
@@ -65,6 +84,18 @@ Deno.serve(async (request) => {
   }
   if (role === "student" && !studentNumber) {
     return Response.json({ error: "A student number is required for student accounts" }, { status: 400 });
+  }
+  if (
+    (program || semesterValue) &&
+    (
+      role !== "student" ||
+      !programs.includes(program) ||
+      !/^[1-8]$/.test(semesterValue)
+    )
+  ) {
+    return Response.json({
+      error: "Choose a valid program and semester for a student account",
+    }, { status: 400 });
   }
 
   const { data: departmentRow, error: departmentError } = await supabase
@@ -90,7 +121,7 @@ Deno.serve(async (request) => {
     return Response.json({ error: "Could not create the login. Check for an existing email or password policy." }, { status: 400 });
   }
 
-  const profile: Record<string, string> = {
+  const profile: Record<string, string | number> = {
     id: createdUser.user.id,
     full_name: fullName,
     username,
@@ -99,6 +130,10 @@ Deno.serve(async (request) => {
   };
   if (studentNumber) {
     profile.student_number = studentNumber;
+  }
+  if (program) {
+    profile.program = program;
+    profile.semester = Number(semesterValue);
   }
 
   const { error: profileError } = await supabase.from("profiles").insert(profile);

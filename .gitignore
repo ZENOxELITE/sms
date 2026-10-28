@@ -5,6 +5,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.demo-data/
 .pytest_cache/
 supabase/.temp/
 Screenshot *.png

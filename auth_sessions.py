@@ -5,13 +5,14 @@ _sessions: dict[str, dict[str, object]] = {}
 _lock = RLock()
 
 
-def save_session(access_token: str, refresh_token: str, expires_at: int) -> str:
+def save_session(access_token: str, refresh_token: str, expires_at: int, user_id: str) -> str:
     session_id = uuid4().hex
     with _lock:
         _sessions[session_id] = {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "expires_at": expires_at,
+            "user_id": user_id,
         }
     return session_id
 
@@ -29,6 +30,7 @@ def update_session(session_id: str, access_token: str, refresh_token: str, expir
                 "access_token": access_token,
                 "refresh_token": refresh_token,
                 "expires_at": expires_at,
+                "user_id": _sessions[session_id]["user_id"],
             }
 
 

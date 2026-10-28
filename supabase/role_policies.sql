@@ -32,6 +32,43 @@ as $$
 $$;
 
 alter table public.profiles add column if not exists username text;
+alter table public.profiles add column if not exists program text;
+alter table public.profiles add column if not exists semester smallint;
+alter table public.profiles add column if not exists is_demo boolean not null default false;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'profiles_semester_range_check'
+      and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles
+      add constraint profiles_semester_range_check
+      check (semester is null or semester between 1 and 8);
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'profiles_program_semester_check'
+      and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles
+      add constraint profiles_program_semester_check
+      check (
+        (program is null and semester is null)
+        or (
+          role = 'student'
+          and program in (
+            'BS Cyber Security Technology',
+            'BS Software Engineering',
+            'BS Software Engineering Technology'
+          )
+          and semester is not null
+          and semester between 1 and 8
+        )
+      );
+  end if;
+end
+$$;
 create unique index if not exists profiles_username_lower_unique
   on public.profiles (lower(username))
   where username is not null;
@@ -73,6 +110,40 @@ create table if not exists public.departments (
   created_at timestamptz not null default now()
 );
 alter table public.departments enable row level security;
+alter table public.courses add column if not exists program text;
+alter table public.courses add column if not exists semester smallint;
+alter table public.courses add column if not exists is_sample boolean not null default false;
+alter table public.courses add column if not exists is_demo boolean not null default false;
+update public.profiles set is_demo = true
+where username like 'demo.%' and not is_demo;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'courses_semester_range_check'
+      and conrelid = 'public.courses'::regclass
+  ) then
+    alter table public.courses
+      add constraint courses_semester_range_check
+      check (semester is null or semester between 1 and 8);
+  end if;
+end
+$$;
+
+alter table public.attendance_records alter column marked_by drop not null;
+alter table public.attendance_records
+  drop constraint if exists attendance_records_marked_by_fkey;
+alter table public.attendance_records
+  add constraint attendance_records_marked_by_fkey
+  foreign key (marked_by) references public.profiles (id) on delete set null;
+alter table public.announcements
+  drop constraint if exists announcements_created_by_fkey;
+alter table public.announcements
+  add constraint announcements_created_by_fkey
+  foreign key (created_by) references public.profiles (id) on delete set null;
+
 insert into public.departments (name) values
   ('Computer Science'),
   ('Information Technology'),
@@ -94,6 +165,35 @@ where name in (
   'Education',
   'Veterinary Sciences'
 );
+
+insert into public.courses
+  (code, name, department, credits, program, semester, is_sample)
+values
+  ('SAMP-CYS-101', 'Programming Fundamentals', 'Computer Science', 3, 'BS Cyber Security Technology', 1, true),
+  ('SAMP-CYS-201', 'Data Structures and Algorithms', 'Computer Science', 3, 'BS Cyber Security Technology', 2, true),
+  ('SAMP-CYS-301', 'Computer Networks and Security', 'Computer Science', 3, 'BS Cyber Security Technology', 3, true),
+  ('SAMP-CYS-401', 'Secure Software Development', 'Computer Science', 3, 'BS Cyber Security Technology', 4, true),
+  ('SAMP-CYS-501', 'Digital Forensics Fundamentals', 'Computer Science', 3, 'BS Cyber Security Technology', 5, true),
+  ('SAMP-CYS-601', 'Ethical Hacking Fundamentals', 'Computer Science', 3, 'BS Cyber Security Technology', 6, true),
+  ('SAMP-CYS-701', 'Incident Response and Threat Analysis', 'Computer Science', 3, 'BS Cyber Security Technology', 7, true),
+  ('SAMP-CYS-801', 'Cybersecurity Capstone Project', 'Computer Science', 3, 'BS Cyber Security Technology', 8, true),
+  ('SAMP-SE-101', 'Programming Fundamentals', 'Computer Science', 3, 'BS Software Engineering', 1, true),
+  ('SAMP-SE-201', 'Object-Oriented Programming', 'Computer Science', 3, 'BS Software Engineering', 2, true),
+  ('SAMP-SE-301', 'Data Structures and Algorithms', 'Computer Science', 3, 'BS Software Engineering', 3, true),
+  ('SAMP-SE-401', 'Database Systems', 'Computer Science', 3, 'BS Software Engineering', 4, true),
+  ('SAMP-SE-501', 'Software Requirements Engineering', 'Computer Science', 3, 'BS Software Engineering', 5, true),
+  ('SAMP-SE-601', 'Software Architecture and Design', 'Computer Science', 3, 'BS Software Engineering', 6, true),
+  ('SAMP-SE-701', 'Software Quality and Testing', 'Computer Science', 3, 'BS Software Engineering', 7, true),
+  ('SAMP-SE-801', 'Software Engineering Capstone Project', 'Computer Science', 3, 'BS Software Engineering', 8, true),
+  ('SAMP-SET-101', 'Programming for Software Technology', 'Computer Science', 3, 'BS Software Engineering Technology', 1, true),
+  ('SAMP-SET-201', 'Web Application Development', 'Computer Science', 3, 'BS Software Engineering Technology', 2, true),
+  ('SAMP-SET-301', 'Mobile Application Development', 'Computer Science', 3, 'BS Software Engineering Technology', 3, true),
+  ('SAMP-SET-401', 'User Experience Design', 'Computer Science', 3, 'BS Software Engineering Technology', 4, true),
+  ('SAMP-SET-501', 'Cloud Computing Foundations', 'Computer Science', 3, 'BS Software Engineering Technology', 5, true),
+  ('SAMP-SET-601', 'DevOps and Software Deployment', 'Computer Science', 3, 'BS Software Engineering Technology', 6, true),
+  ('SAMP-SET-701', 'Software Testing Automation', 'Computer Science', 3, 'BS Software Engineering Technology', 7, true),
+  ('SAMP-SET-801', 'Applied Software Technology Project', 'Computer Science', 3, 'BS Software Engineering Technology', 8, true)
+on conflict (code) do nothing;
 
 revoke all on function public.current_profile_role() from public;
 revoke all on function public.current_profile_department() from public;

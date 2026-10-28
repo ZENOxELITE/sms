@@ -7,12 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Epunda+Sans:wght@400;500;600;700&family=Epunda+Slab:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
 </head>
 <body class="login-page">
   <main class="login-card">
     <header class="login-heading">
-      <div class="brand-mark">IQRA <small>UNIVERSITY</small></div>
+      <img class="login-logo" src="{{ url_for('static', path='logo_sms_wordmark.jpg') }}" alt="Student Management System">
       <h1>Student Management System</h1>
       <p>Sign in to access your campus portal</p>
     </header>

@@ -54,7 +54,7 @@ mindmap
         Courses and classes
         Announcements
     Application
-      Flask routes
+      FastAPI routes
       HTML templates
       CSS styling
       Supabase database

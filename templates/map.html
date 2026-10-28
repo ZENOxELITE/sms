@@ -7,12 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Epunda+Sans:wght@400;500;600;700&family=Epunda+Slab:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='map.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='map.css') }}">
 </head>
 <body class="map-page">
   <header class="map-header">
-    <a href="/" class="map-brand">Student Management System</a>
+    <a href="/" class="map-brand" aria-label="Student Management System home">
+      <img src="{{ url_for('static', path='logo_sms_wordmark.jpg') }}" alt="">
+    </a>
     <span>Project structure</span>
   </header>
   <main class="map-shell">
@@ -45,10 +47,10 @@
     </section>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="{{ url_for('static', filename='mindmap-data.js') }}"></script>
-  <script src="{{ url_for('static', filename='mindmap.js') }}"></script>
+  <script src="{{ url_for('static', path='mindmap-data.js') }}?v=2"></script>
+  <script src="{{ url_for('static', path='mindmap.js') }}"></script>
   {% if run_layout_tests %}
-  <script src="{{ url_for('static', filename='mindmap-layout.test.js') }}"></script>
+  <script src="{{ url_for('static', path='mindmap-layout.test.js') }}"></script>
   {% endif %}
 </body>
 </html>

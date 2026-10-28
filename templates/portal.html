@@ -7,11 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Epunda+Sans:wght@400;500;600;700&family=Epunda+Slab:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+  <script src="{{ url_for('static', path='portal-tables.js') }}" defer></script>
 </head>
 <body class="dashboard-page">
   <header class="topbar">
-    <a class="brand-mark top-brand" href="{{ url_for('portal_home', role=role) }}">IQRA <small>UNIVERSITY</small></a>
+    <a class="top-brand" href="{{ url_for('portal_home', role=role) }}" aria-label="Student Management System home">
+      <img src="{{ url_for('static', path='logo_sms_wordmark.jpg') }}" alt="">
+    </a>
     <span class="site-title">Student Management System</span>
     <div class="top-actions">
       <a href="{{ url_for('map_page') }}">Project map</a>
@@ -56,6 +59,12 @@
       {% if page.data_error %}
       <p class="flash-message error" role="alert">{{ page.data_error }}</p>
       {% endif %}
+      {% if page.curriculum_note %}
+      <p class="flash-message">{{ page.curriculum_note }}</p>
+      {% endif %}
+      {% if page.record_note %}
+      <p class="flash-message">{{ page.record_note }}</p>
+      {% endif %}
 
       {% if page.metrics %}
       <section class="portal-metrics" aria-label="Summary">
@@ -69,18 +78,48 @@
       <section class="portal-card">
         <div class="portal-card-heading">
           <h2>{{ page.table_title }}</h2>
-          <input class="table-search" type="search" placeholder="Filter this table" aria-label="Filter table">
+          <div class="table-tools">
+            <input class="table-search" type="search" placeholder="Filter this table" aria-label="Filter {{ page.table_title }}">
+            <div class="table-pagination" aria-label="{{ page.table_title }} pagination">
+              <button type="button" data-page-change="-1" aria-label="Previous page">&larr;</button>
+              <span class="table-page-status" role="status" aria-live="polite"></span>
+              <button type="button" data-page-change="1" aria-label="Next page">&rarr;</button>
+            </div>
+          </div>
         </div>
         <div class="table-scroll">
           <table class="portal-table">
-            <thead><tr>{% for column in page.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+            <thead>
+              <tr>
+                {% for column in page.columns %}<th scope="col">{{ column }}</th>{% endfor %}
+                {% if page.row_actions %}<th scope="col">Actions</th>{% endif %}
+              </tr>
+            </thead>
             <tbody>
               {% for row in page.rows %}
-              <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+              <tr>
+                {% set row_action_value = page.row_actions[loop.index0] if page.row_actions else none %}
+                {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
+                {% if page.row_actions %}
+                <td class="row-actions">
+                  {% if row_action_value %}
+                  <form method="post" onsubmit="return confirm({{ page.row_action_confirm|tojson }});">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="{{ page.row_action }}">
+                    <input type="hidden" name="{{ page.row_action_field }}" value="{{ row_action_value }}">
+                    <button class="button-danger" type="submit">{{ page.row_action_name }}</button>
+                  </form>
+                  {% else %}
+                  <span>Protected</span>
+                  {% endif %}
+                </td>
+                {% endif %}
+              </tr>
               {% endfor %}
               {% if not page.rows %}
-              <tr><td colspan="{{ page.columns|length }}" class="empty-state">No records are available for this account yet.</td></tr>
+              <tr class="empty-state"><td colspan="{{ page.columns|length + (1 if page.row_actions else 0) }}">No records are available for this account yet.</td></tr>
               {% endif %}
+              <tr class="filter-empty" hidden><td colspan="{{ page.columns|length + (1 if page.row_actions else 0) }}">No records match this filter.</td></tr>
             </tbody>
           </table>
         </div>
@@ -88,7 +127,17 @@
       {% endif %}
       {% for table in page.extra_tables or [] %}
       <section class="portal-card">
-        <h2>{{ table.title }}</h2>
+        <div class="portal-card-heading">
+          <h2>{{ table.title }}</h2>
+          <div class="table-tools">
+            <input class="table-search" type="search" placeholder="Filter this table" aria-label="Filter {{ table.title }}">
+            <div class="table-pagination" aria-label="{{ table.title }} pagination">
+              <button type="button" data-page-change="-1" aria-label="Previous page">&larr;</button>
+              <span class="table-page-status" role="status" aria-live="polite"></span>
+              <button type="button" data-page-change="1" aria-label="Next page">&rarr;</button>
+            </div>
+          </div>
+        </div>
         <div class="table-scroll">
           <table class="portal-table">
             <thead><tr>{% for column in table.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
@@ -97,8 +146,9 @@
               <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
               {% endfor %}
               {% if not table.rows %}
-              <tr><td colspan="{{ table.columns|length }}" class="empty-state">No records are available for this account yet.</td></tr>
+              <tr class="empty-state"><td colspan="{{ table.columns|length }}">No records are available for this account yet.</td></tr>
               {% endif %}
+              <tr class="filter-empty" hidden><td colspan="{{ table.columns|length }}">No records match this filter.</td></tr>
             </tbody>
           </table>
         </div>
@@ -191,14 +241,6 @@
       accountRole.addEventListener("change", updateStudentNumberRequirement);
       updateStudentNumberRequirement();
     }
-    document.querySelectorAll(".table-search").forEach((input) => {
-      input.addEventListener("input", () => {
-        const query = input.value.toLowerCase();
-        input.closest(".portal-card").querySelectorAll("tbody tr").forEach((row) => {
-          row.hidden = !row.textContent.toLowerCase().includes(query);
-        });
-      });
-    });
   </script>
 </body>
 </html>

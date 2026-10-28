@@ -7,12 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Epunda+Sans:wght@400;500;600;700&family=Epunda+Slab:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
 </head>
 <body class="dashboard-page">
   <header class="topbar">
     <button class="menu-button" type="button" aria-label="Menu">☰</button>
-    <div class="brand-mark top-brand">IQRA <small>UNIVERSITY</small></div>
+    <a class="top-brand" href="/" aria-label="Student Management System home">
+      <img src="{{ url_for('static', path='logo_sms_wordmark.jpg') }}" alt="">
+    </a>
     <span class="site-title">Student Management System</span>
     <div class="top-actions"><span class="top-icon">⛶</span><span class="notification">2</span><a href="/">Aman A.</a></div>
   </header>
