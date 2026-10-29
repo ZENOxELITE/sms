@@ -159,33 +159,76 @@ button, input, select { font: inherit; }
 .login-footnote { margin: 16px 0 0; color: #77869a; font-size: 11px; line-height: 1.5; }
 @media (max-width: 900px) {
   .dashboard-layout { grid-template-columns: 170px minmax(0, 1fr); }
-  .dashboard-content { padding: 16px; }
+  .dashboard-content { min-width: 0; padding: 16px; }
   .academic-card { grid-template-columns: 1.3fr 1fr; gap: 12px; }
   .academic-stat:nth-child(2) { border-left: 0; }
   .class-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .news-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dashboard-layout { grid-template-columns: 170px minmax(0, 1fr); }
-  .portal-metrics { grid-template-columns: 1fr; }
+  .portal-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .portal-card { min-width: 0; }
+  .table-scroll { max-width: 100%; }
 }
 @media (max-width: 600px) {
-  .login-page { padding: 12px; }
-  .login-card { padding: 28px 20px 22px; }
+  .login-page { min-height: 100svh; align-items: start; padding: 16px 12px; }
+  .login-card { width: 100%; padding: 24px 18px 20px; }
+  .login-logo { width: min(100%, 300px); }
+  .login-heading h1 { font-size: 21px; }
+  .login-form input, .login-form select, .reset-row input, .reset-row button { min-height: 44px; }
+  .login-form .button-primary { min-height: 44px; justify-self: stretch; }
   .dashboard-layout { display: block; }
-  .sidebar { display: none; }
-  .topbar { gap: 9px; padding: 0 10px; }
-  .top-brand { width: 80px; height: 38px; }
-  .site-title { font-size: 11px; }
-  .top-actions { gap: 10px; }
-  .dashboard-content { padding: 16px 12px; }
+  .sidebar { display: block; overflow: hidden; border-right: 0; border-bottom: 1px solid var(--line); }
+  .student-profile { display: none; }
+  .side-nav { display: flex; gap: 5px; overflow-x: auto; padding: 7px 10px; scrollbar-width: thin; }
+  .side-nav a { min-height: 40px; flex: 0 0 auto; white-space: nowrap; }
+  .side-nav a > span { display: none; }
+  .topbar { min-height: 54px; height: auto; flex-wrap: wrap; gap: 7px; padding: 7px 10px; }
+  .top-brand { width: 66px; height: 34px; }
+  .site-title { min-width: 0; flex: 1; font-size: 11px; }
+  .top-actions { flex: 0 0 auto; gap: 9px; font-size: 10px; }
+  .topbar-link { font-size: 11px; }
+  .breadcrumb { height: auto; min-height: 34px; overflow: hidden; padding: 7px 12px; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-content { width: 100%; min-width: 0; padding: 16px 12px; }
   .academic-card { grid-template-columns: 1fr; }
   .academic-stat { padding: 7px 0; border-top: 1px solid #e3e8ee; border-left: 0; }
-  .class-grid, .news-grid { grid-template-columns: 1fr; }
-  .portal-heading { flex-direction: column; }
-  .portal-card-heading { align-items: flex-start; flex-direction: column; }
-  .table-tools { width: 100%; align-items: stretch; flex-direction: column; }
-  .table-search { width: 100%; }
-  .table-pagination { justify-content: space-between; }
+  .class-grid, .news-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .portal-heading { align-items: flex-start; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+  .portal-heading h1 { font-size: clamp(22px, 7vw, 28px); }
+  .portal-heading p { font-size: 14px; line-height: 1.45; }
+  .portal-heading .eyebrow { font-size: 11px; }
+  .live-badge { max-width: 100%; }
+  .portal-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .portal-metric { gap: 6px; padding: 12px; }
+  .portal-metric span { font-size: 12px; }
+  .portal-metric strong { font-size: 18px; }
+  .portal-card-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .table-tools { width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 7px; }
+  .table-search { width: auto; min-width: 0; flex: 1; padding: 9px 8px; font-size: 16px; }
+  .table-pagination { flex: 0 0 auto; justify-content: flex-end; gap: 5px; font-size: 11px; }
+  .table-pagination button { width: 36px; height: 36px; flex: 0 0 36px; }
+  .table-page-status { min-width: 82px; }
+  .table-scroll { width: 100%; max-width: 100%; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+  .portal-table { min-width: max-content; }
+  .portal-table th, .portal-table td { padding: 10px 9px; }
+  .portal-table th { font-size: 11px; }
+  .portal-table td { font-size: 13px; }
+  .portal-card { overflow: hidden; margin-bottom: 13px; padding: 13px; }
+  .portal-card h2 { font-size: 16px; }
+  .portal-form { gap: 12px; }
+  .portal-form input, .portal-form textarea, .portal-form select { min-height: 44px; font-size: 16px; }
+  .portal-form textarea { min-height: 100px; }
+  .portal-form .button-primary, .row-actions .button-danger { min-height: 40px; }
+  .portal-form .button-primary { justify-self: stretch; }
   .quick-links { grid-template-columns: 1fr; }
-  .portal-card { padding: 13px; }
-  .top-actions { font-size: 10px; }
+  .quick-links a { min-height: 44px; }
+  .reset-row { grid-template-columns: 1fr; }
+  .reset-row button { width: 100%; }
+  .portal-note { font-size: 12px; }
+}
+@media (max-width: 380px) {
+  .top-actions a[href$="/map"] { display: none; }
+  .class-grid, .news-grid { grid-template-columns: 1fr; }
+  .portal-metric { padding: 10px; }
+  .table-tools { align-items: stretch; flex-direction: column; }
+  .table-search { width: 100%; flex: auto; }
+  .table-pagination { justify-content: space-between; }
 }
