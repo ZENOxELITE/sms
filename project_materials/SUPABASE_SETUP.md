@@ -1,21 +1,30 @@
 # Supabase setup and account provisioning
 
-## Configure FastAPI
+## Configure Django
 
-1. Copy `.env.example` to `.env` in the project root, beside `app.py`.
-2. Set the Supabase **Project URL**, publishable/anon key, and username lookup secret described below. Keep the existing `FLASK_SECRET_KEY` value as the signed-session secret; it does not need to be renamed during the framework migration.
+1. Copy `.env.example` to `.env` in the project root, beside `manage.py`.
+2. Set the Supabase **Project URL**, publishable/anon key, and username lookup secret described below. Keep the existing `FLASK_SECRET_KEY` value; Django uses it as the session-signing key unless `DJANGO_SECRET_KEY` is set.
 3. Keep `.env` private; `.gitignore` excludes it.
-4. Install dependencies and run FastAPI:
+4. Install dependencies and start Django:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-uvicorn app:app --reload --host 127.0.0.1 --port 5000
+$env:DJANGO_DEBUG = "true"
+python manage.py runserver 127.0.0.1:5000
 ```
 
-Visit `http://127.0.0.1:5000/health/supabase`. A connected result verifies the REST API is returning JSON from the configured project. `python app.py` is also available for a simple local start without reload.
+On Windows, double-click [`run_local.bat`](../run_local.bat) to create `.venv` if needed, install Python dependencies, run the Django checks and Python/JavaScript tests, verify the Supabase connection, collect static files, and open the local site. Node.js must be installed for the JavaScript test. The script reads credentials from `.env` and never prints them.
 
-If account management reports that configuration is missing, make sure `SUPABASE_URL` and `SUPABASE_ANON_KEY` are non-empty in the project-root `.env` file and restart FastAPI. If it reports that Edge Function secrets are missing, confirm the function is deployed to the same Supabase project as the configured URL; Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to its Edge Function runtime. A missing signed-in session is a separate authentication error.
+Visit `http://127.0.0.1:5000/health/supabase`. A connected result verifies the REST API is returning JSON from the configured project. Render uses the included `Procfile` to collect static files and start Gunicorn. If a Start Command is set manually in Render, use:
+
+```text
+python manage.py collectstatic --noinput && gunicorn sms_project.wsgi:application --bind 0.0.0.0:$PORT
+```
+
+On Render, set `SESSION_COOKIE_SECURE=true` so the session and CSRF cookies are sent only over HTTPS.
+
+If account management reports that configuration is missing, make sure `SUPABASE_URL` and `SUPABASE_ANON_KEY` are non-empty in the project-root `.env` file and restart Django. If it reports that Edge Function secrets are missing, confirm the function is deployed to the same Supabase project as the configured URL; Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to its Edge Function runtime. A missing signed-in session is a separate authentication error.
 
 ## Apply the database schema and policies
 
@@ -70,7 +79,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 supabase secrets set USERNAME_LOOKUP_SECRET=PASTE_GENERATED_VALUE
 ```
 
-Add `SUPABASE_USERNAME_LOOKUP_SECRET=PASTE_THE_SAME_VALUE` to `.env`, then restart the FastAPI server. Never commit or share this secret.
+Add `SUPABASE_USERNAME_LOOKUP_SECRET=PASTE_THE_SAME_VALUE` to `.env`, then restart the Django server. Never commit or share this secret.
 
 4. Set each existing user's lowercase username on their `profiles` row in Supabase Table Editor, or use SQL:
 
@@ -157,7 +166,7 @@ Use `teacher` or `hod` for staff profiles as appropriate. Students need unique s
 
 ## What is connected
 
-- FastAPI accepts email/password or username/password; username lookup uses a private Edge Function, then Supabase Auth verifies the credentials.
+- Django accepts email/password or username/password; username lookup uses a private Edge Function, then Supabase Auth verifies the credentials.
 - Auth tokens stay in the application process; the browser receives only a signed session identifier.
 - Each page uses the signed-in user's access token, so Supabase RLS applies to its queries.
 - Students can view their own profile, enrollments, timetable, attendance, published grades, invoices, notices, and requests.
@@ -167,10 +176,10 @@ Use `teacher` or `hod` for staff profiles as appropriate. Students need unique s
 - Admins can add departments, create student/teacher/HOD accounts with department assignments, manage courses, class sessions, exams, teacher assignments, and student enrollments, and publish announcements.
 - Students can submit feedback and complaints. Password-reset email uses Supabase Auth.
 
-The browser session is held in process memory for this small class-project deployment. Restarting the FastAPI application signs users out; use a persistent server-side session store before deploying multiple Uvicorn workers or a production service.
+Supabase access and refresh tokens are held in the application process; the signed browser cookie contains only an opaque session ID. Restarting Django signs users out. Use shared persistent session storage before running multiple Gunicorn workers or instances.
 
 ## Testing safely
 
 Run `python -m unittest discover -s tests`. This does not insert or modify records in Supabase. To check a real write, sign in with a provisioned test account, submit a feedback item, then confirm that one row appears in `student_requests` in the Supabase Table Editor.
 
-Never put a Supabase service-role/secret key in `.env` or browser code. The service-role key is used only inside the trusted Edge Function; FastAPI uses the public anon/publishable key, and portal reads/writes rely on RLS.
+Never put a Supabase service-role/secret key in `.env` or browser code. The service-role key is used only inside the trusted Edge Function; Django uses the public anon/publishable key, and portal reads/writes rely on RLS.

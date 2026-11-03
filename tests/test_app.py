@@ -1,19 +1,24 @@
-import base64
 import json
 import re
 import time
 import unittest
 import os
+from io import StringIO
 from types import SimpleNamespace
 from urllib.error import HTTPError
 from io import BytesIO
 from urllib.parse import urlsplit
 from unittest.mock import MagicMock, patch
 
-import app as app_module
-from fastapi.testclient import TestClient
-from itsdangerous import TimestampSigner
-from starlette.middleware.sessions import SessionMiddleware
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "sms_project.settings")
+import django
+
+django.setup()
+
+from django.test import Client
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from portal import services as app_module
 from auth_sessions import delete_session
 from portal_data import _in, _where, build_live_page
 
@@ -145,34 +150,45 @@ class FakeReadClient:
 
 class PortalAppTests(unittest.TestCase):
     def setUp(self):
-        for middleware in app_module.app.user_middleware:
-            if middleware.cls is SessionMiddleware:
-                middleware.kwargs["secret_key"] = "test-secret"
-        self.client = TestClient(app_module.app, follow_redirects=False)
+        self.client = Client(enforce_csrf_checks=True)
 
     def _set_session(self, **values):
-        session = self._read_session()
+        session = self.client.session
         session.update(values)
         session.setdefault("csrf_token", "test-csrf-token")
-        payload = base64.b64encode(json.dumps(session).encode("utf-8"))
-        cookie = TimestampSigner("test-secret").sign(payload).decode("utf-8")
-        self.client.cookies.set("session", cookie)
+        session.save()
+        self.client.cookies["session"] = session.session_key
 
     def _read_session(self):
-        cookie = self.client.cookies.get("session")
-        if not cookie:
-            return {}
-        payload = TimestampSigner("test-secret").unsign(cookie)
-        return json.loads(base64.b64decode(payload))
+        return dict(self.client.session.items())
 
     def _location(self, response):
         return urlsplit(response.headers["location"]).path
 
     def _csrf(self):
         response = self.client.get("/")
-        match = re.search(rb'name="csrf_token" value="([^"]+)"', response.content)
+        match = re.search(rb'name="csrfmiddlewaretoken" value="([^"]+)"', response.content)
         self.assertIsNotNone(match)
         return match.group(1).decode()
+
+    def test_supabase_check_command_reports_success(self):
+        output = StringIO()
+        client = FakeReadClient({"courses": []})
+        with patch(
+            "portal.management.commands.check_supabase.get_supabase_client",
+            return_value=client,
+        ):
+            call_command("check_supabase", stdout=output)
+
+        self.assertIn("Supabase connection: OK", output.getvalue())
+
+    def test_supabase_check_command_reports_missing_configuration(self):
+        with patch(
+            "portal.management.commands.check_supabase.get_supabase_client",
+            side_effect=RuntimeError("Set SUPABASE_URL and SUPABASE_ANON_KEY."),
+        ):
+            with self.assertRaisesRegex(CommandError, "SUPABASE_URL"):
+                call_command("check_supabase", stdout=StringIO())
 
     def test_login_page_offers_email_and_username_without_role_choice(self):
         response = self.client.get("/")
@@ -279,7 +295,7 @@ class PortalAppTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(
                 RuntimeError,
-                r"Set SUPABASE_URL and SUPABASE_ANON_KEY in the \.env file beside app.py",
+                r"Set SUPABASE_URL and SUPABASE_ANON_KEY in the \.env file beside manage.py",
             ):
                 app_module._create_campus_account(
                     {"email": "student@example.test"},
@@ -293,7 +309,7 @@ class PortalAppTests(unittest.TestCase):
 
     def test_post_without_csrf_token_is_rejected(self):
         response = self.client.post("/logout")
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 403)
 
     def test_login_uses_database_role_and_keeps_tokens_out_of_cookie(self):
         user = SimpleNamespace(id="user-123", email="teacher@example.test")
@@ -326,7 +342,7 @@ class PortalAppTests(unittest.TestCase):
                 response = self.client.post(
                     "/login",
                     data={
-                        "csrf_token": self._csrf(),
+                        "csrfmiddlewaretoken": self._csrf(),
                         "login_method": "username",
                         "identifier": "testteacher",
                         "password": "example",
@@ -337,8 +353,8 @@ class PortalAppTests(unittest.TestCase):
         self.assertEqual(self._location(response), "/portal/teacher/dashboard")
         cookie = self.client.cookies.get("session")
         self.assertIsNotNone(cookie)
-        self.assertNotIn("access-secret-token", cookie)
-        self.assertNotIn("refresh-secret-token", cookie)
+        self.assertNotIn("access-secret-token", cookie.value)
+        self.assertNotIn("refresh-secret-token", cookie.value)
         delete_session(self._read_session().get("auth_session_id"))
 
     def test_email_login_skips_username_lookup(self):
@@ -373,7 +389,7 @@ class PortalAppTests(unittest.TestCase):
                 response = self.client.post(
                     "/login",
                     data={
-                        "csrf_token": self._csrf(),
+                        "csrfmiddlewaretoken": self._csrf(),
                         "login_method": "email",
                         "identifier": "Teacher@Example.Test",
                         "password": "example",
@@ -390,9 +406,9 @@ class PortalAppTests(unittest.TestCase):
         user = SimpleNamespace(id="teacher-1", email="teacher@example.test")
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = None
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = None
             return profile
 
         with patch.object(app_module, "_set_authenticated_user", side_effect=set_test_user):
@@ -407,9 +423,9 @@ class PortalAppTests(unittest.TestCase):
         user = SimpleNamespace(id="student-1", email="student@example.test")
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = object()
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = object()
             return profile
 
         page = {
@@ -450,9 +466,9 @@ class PortalAppTests(unittest.TestCase):
         database = FakeWriteClient()
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
             return profile
 
         token = self._csrf()
@@ -460,7 +476,7 @@ class PortalAppTests(unittest.TestCase):
             self._set_session(auth_session_id="test-session")
             response = self.client.post(
                 "/portal/student/feedback",
-                data={"csrf_token": token, "subject": "Test subject", "message": "Test message"},
+                data={"csrfmiddlewaretoken": token, "subject": "Test subject", "message": "Test message"},
             )
 
         self.assertEqual(response.status_code, 302)
@@ -480,9 +496,9 @@ class PortalAppTests(unittest.TestCase):
         })
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
             return profile
 
         token = self._csrf()
@@ -491,7 +507,7 @@ class PortalAppTests(unittest.TestCase):
             response = self.client.post(
                 "/portal/admin/courses",
                 data={
-                    "csrf_token": token,
+                    "csrfmiddlewaretoken": token,
                     "action": "add-exam",
                     "course_id": "12",
                     "title": "Midterm",
@@ -529,9 +545,9 @@ class PortalAppTests(unittest.TestCase):
         })
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
             return profile
 
         token = self._csrf()
@@ -540,7 +556,7 @@ class PortalAppTests(unittest.TestCase):
             response = self.client.post(
                 "/portal/admin/courses",
                 data={
-                    "csrf_token": token,
+                    "csrfmiddlewaretoken": token,
                     "action": "add-exam",
                     "course_id": "12",
                     "title": "Midterm",
@@ -562,9 +578,9 @@ class PortalAppTests(unittest.TestCase):
         })
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
             return profile
 
         token = self._csrf()
@@ -573,7 +589,7 @@ class PortalAppTests(unittest.TestCase):
             response = self.client.post(
                 "/portal/admin/courses",
                 data={
-                    "csrf_token": token,
+                    "csrfmiddlewaretoken": token,
                     "action": "add-course",
                     "name": "Sample Secure Programming",
                     "code": "samp-cys-109",
@@ -650,10 +666,10 @@ class PortalAppTests(unittest.TestCase):
         user = SimpleNamespace(id="admin-1", email="admin@example.test")
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = object()
-            _request.state.access_token = "admin-access-token"
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = object()
+            _request.access_token = "admin-access-token"
             return profile
 
         token = self._csrf()
@@ -663,7 +679,7 @@ class PortalAppTests(unittest.TestCase):
                 response = self.client.post(
                     "/portal/admin/users",
                     data={
-                        "csrf_token": token,
+                        "csrfmiddlewaretoken": token,
                         "action": "create-account",
                         "email": "student@example.test",
                         "password": "temporary-password",
@@ -773,9 +789,9 @@ class PortalAppTests(unittest.TestCase):
         })
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
             return profile
 
         with patch.object(app_module, "_set_authenticated_user", side_effect=set_test_user):
@@ -798,10 +814,10 @@ class PortalAppTests(unittest.TestCase):
         database = FakeReadClient({})
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
-            _request.state.access_token = "admin-access-token"
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
+            _request.access_token = "admin-access-token"
             return profile
 
         token = self._csrf()
@@ -811,7 +827,7 @@ class PortalAppTests(unittest.TestCase):
                 response = self.client.post(
                     "/portal/admin/users",
                     data={
-                        "csrf_token": token,
+                        "csrfmiddlewaretoken": token,
                         "action": "delete-account",
                         "profile_id": "12345678-1234-5678-1234-567812345678",
                     },
@@ -829,10 +845,10 @@ class PortalAppTests(unittest.TestCase):
         user = SimpleNamespace(id=profile["id"], email="admin@example.test")
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = FakeReadClient({})
-            _request.state.access_token = "admin-access-token"
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = FakeReadClient({})
+            _request.access_token = "admin-access-token"
             return profile
 
         token = self._csrf()
@@ -842,7 +858,7 @@ class PortalAppTests(unittest.TestCase):
                 response = self.client.post(
                     "/portal/admin/users",
                     data={
-                        "csrf_token": token,
+                        "csrfmiddlewaretoken": token,
                         "action": "delete-account",
                         "profile_id": profile["id"],
                     },
@@ -871,9 +887,9 @@ class PortalAppTests(unittest.TestCase):
         database = FakeWriteClient()
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
             return profile
 
         token = self._csrf()
@@ -881,7 +897,7 @@ class PortalAppTests(unittest.TestCase):
             self._set_session(auth_session_id="test-session")
             response = self.client.post(
                 "/portal/admin/departments",
-                data={"csrf_token": token, "action": "add-department", "name": "Clinical Psychology"},
+                data={"csrfmiddlewaretoken": token, "action": "add-department", "name": "Clinical Psychology"},
             )
 
         self.assertEqual(response.status_code, 302)
@@ -894,9 +910,9 @@ class PortalAppTests(unittest.TestCase):
         database = FakeWriteClient()
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
             return profile
 
         token = self._csrf()
@@ -905,7 +921,7 @@ class PortalAppTests(unittest.TestCase):
             response = self.client.post(
                 "/portal/admin/departments",
                 data={
-                    "csrf_token": token,
+                    "csrfmiddlewaretoken": token,
                     "action": "delete-department",
                     "department_name": "Unused Department",
                 },
@@ -925,9 +941,9 @@ class PortalAppTests(unittest.TestCase):
         })
 
         def set_test_user(_request, _session_id):
-            _request.state.profile = profile
-            _request.state.user = user
-            _request.state.supabase = database
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
             return profile
 
         token = self._csrf()
@@ -936,7 +952,7 @@ class PortalAppTests(unittest.TestCase):
             response = self.client.post(
                 "/portal/admin/departments",
                 data={
-                    "csrf_token": token,
+                    "csrfmiddlewaretoken": token,
                     "action": "delete-department",
                     "department_name": "Computer Science",
                 },
@@ -1032,9 +1048,9 @@ class PortalAppTests(unittest.TestCase):
                 client = FakeReadClient(tables)
 
                 def set_test_user(_request, _session_id):
-                    _request.state.profile = profile
-                    _request.state.user = user
-                    _request.state.supabase = client
+                    _request.profile = profile
+                    _request.supabase_user = user
+                    _request.supabase = client
                     return profile
 
                 with patch.object(app_module, "_set_authenticated_user", side_effect=set_test_user):

@@ -23,7 +23,7 @@
     {% endwith %}
     <p class="login-note">Choose email or username to sign in. Your account role is assigned by the system administrator.</p>
     <form class="login-form" action="{{ url_for('login_submit') }}" method="post">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
       <label for="login-method">Sign in with</label>
       <select id="login-method" name="login_method" required>
         <option value="email">Email</option>
@@ -48,7 +48,7 @@
     </script>
     <div class="login-divider"></div>
     <form class="reset-form" action="{{ url_for('password_reset') }}" method="post">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
       <label for="reset-email">Forgot your password?</label>
       <div class="reset-row">
         <input id="reset-email" name="email" type="email" placeholder="Your account email" required>

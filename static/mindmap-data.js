@@ -47,7 +47,7 @@ window.mindmapData = {
       ] }
     ] },
     { name: "Application", type: "group", children: [
-      { name: "FastAPI routes", type: "page" }, { name: "HTML templates", type: "page" },
+      { name: "Django routes and views", type: "page" }, { name: "HTML templates", type: "page" },
       { name: "CSS styling", type: "page" }, { name: "Supabase database", type: "page" }
     ] }
   ]

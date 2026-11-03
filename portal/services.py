@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -10,32 +9,23 @@ from urllib.request import Request as URLRequest, urlopen
 from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from jinja2 import pass_context
-from starlette.concurrency import run_in_threadpool
-from starlette.middleware.sessions import SessionMiddleware
+from django.http import Http404
 
 from auth_sessions import delete_session, get_session, save_session, update_session
 from portal_data import CURRICULUM_PROGRAMS, build_live_page
 from supabase_client import create_supabase_client, get_supabase_client
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
 
 logger = logging.getLogger("sms")
-app = FastAPI(title="Student Management System")
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=os.getenv("FLASK_SECRET_KEY", "development-only-change-me"),
-    session_cookie="session",
-    same_site="lax",
-    https_only=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
-)
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+
+
+class PortalRequestError(Exception):
+    def __init__(self, status_code, message):
+        super().__init__(message)
+        self.status_code = status_code
+
 
 PORTALS = {
     "student": {
@@ -85,53 +75,10 @@ PORTALS = {
 }
 
 
-@pass_context
-def get_flashed_messages(context, with_categories=False):
-    request = context.get("request")
-    if request is None:
-        return []
-    messages = request.session.pop("_flashes", [])
-    if with_categories:
-        return messages
-    return [message for _category, message in messages]
-
-
-templates.env.globals["get_flashed_messages"] = get_flashed_messages
-
-
 def flash(request, message, category="message"):
-    messages = request.session.setdefault("_flashes", [])
+    messages = list(request.session.get("_flashes", []))
     messages.append((category, str(message)))
-
-
-def _csrf_token(request):
-    request.session.setdefault("csrf_token", secrets.token_urlsafe(32))
-    return request.session["csrf_token"]
-
-
-def _verify_csrf(request, form):
-    expected = request.session.get("csrf_token")
-    supplied = form.get("csrf_token") or request.headers.get("X-CSRF-Token")
-    if not expected or not supplied or not secrets.compare_digest(str(expected), str(supplied)):
-        raise HTTPException(
-            status_code=400,
-            detail="The form expired. Reload the page and try again.",
-        )
-
-
-def _redirect(request, endpoint, status_code=302, **path_params):
-    return RedirectResponse(
-        request.url_for(endpoint, **path_params),
-        status_code=status_code,
-    )
-
-
-def _login_page(request):
-    return templates.TemplateResponse(
-        request=request,
-        name="login.html",
-        context={"csrf_token": _csrf_token(request)},
-    )
+    request.session["_flashes"] = messages
 
 
 def _set_authenticated_user(request, session_id):
@@ -177,10 +124,10 @@ def _set_authenticated_user(request, session_id):
         if not profile or profile.get("role") not in PORTALS:
             delete_session(session_id)
             return None
-        request.state.user = user
-        request.state.profile = profile
-        request.state.supabase = profile_client
-        request.state.access_token = access_token
+        request.supabase_user = user
+        request.profile = profile
+        request.supabase = profile_client
+        request.access_token = access_token
         return profile
     except Exception:
         logger.exception("Could not validate the current Supabase session.")
@@ -189,10 +136,10 @@ def _set_authenticated_user(request, session_id):
 
 
 def _current_portal(request):
-    profile = request.state.profile
+    profile = request.profile
     role = profile["role"]
     portal = PORTALS[role].copy()
-    portal["name"] = profile.get("full_name") or request.state.user.email or portal["name"]
+    portal["name"] = profile.get("full_name") or request.supabase_user.email or portal["name"]
     portal["identifier"] = profile.get("student_number") or portal["identifier"]
     portal["faculty"] = profile.get("department") or portal["faculty"]
     return role, portal
@@ -259,7 +206,7 @@ def _create_campus_account(payload, access_token):
         raise RuntimeError(
             "Supabase account creation is not configured. Set "
             + " and ".join(missing_settings)
-            + " in the .env file beside app.py, then restart FastAPI."
+            + " in the .env file beside manage.py, then restart Django."
         )
     if not isinstance(access_token, str) or not access_token.strip():
         raise RuntimeError("A signed-in Supabase session is required to create accounts.")
@@ -356,139 +303,11 @@ def _authenticate_credentials(email, password):
     )
 
 
-@app.get("/", name="login")
-async def login(request: Request):
-    profile = await run_in_threadpool(
-        _set_authenticated_user,
-        request,
-        request.session.get("auth_session_id"),
-    )
-    if profile:
-        role = profile["role"]
-        return _redirect(request, "portal_page", 302, role=role, section="dashboard")
-    return _login_page(request)
-
-
-@app.post("/login", name="login_submit")
-async def login_submit(request: Request):
-    form = await request.form()
-    _verify_csrf(request, form)
-    login_method = str(form.get("login_method", "")).strip().lower()
-    identifier = str(form.get("identifier", "")).strip()
-    password = str(form.get("password", ""))
-    if login_method not in {"email", "username"} or not identifier or not password:
-        flash(request, "Choose email or username, then enter your account name and password.", "error")
-        return _redirect(request, "login")
-    if login_method == "email":
-        email = identifier.lower()
-    else:
-        try:
-            email = await run_in_threadpool(_resolve_login_email, identifier)
-        except RuntimeError as error:
-            logger.exception("Username lookup is not available.")
-            flash(request, str(error), "error")
-            return _redirect(request, "login")
-    if not email:
-        flash(request, "Username or password is incorrect.", "error")
-        return _redirect(request, "login")
-    try:
-        result = await run_in_threadpool(_authenticate_credentials, email, password)
-        if not result:
-            flash(
-                request,
-                "Sign-in did not return an active session. Check your account and email confirmation.",
-                "error",
-            )
-            return _redirect(request, "login")
-        user, session_id = result
-        request.session.clear()
-        request.session["auth_session_id"] = session_id
-        request.session["csrf_token"] = secrets.token_urlsafe(32)
-        profile = await run_in_threadpool(_set_authenticated_user, request, session_id)
-        if not profile:
-            request.session.clear()
-            flash(
-                request,
-                "Your account needs a campus profile. Ask an administrator to finish setting it up.",
-                "error",
-            )
-            return _redirect(request, "login")
-        return _redirect(
-            request, "portal_page", role=profile["role"], section="dashboard"
-        )
-    except Exception:
-        logger.exception("Supabase sign-in failed.")
-        flash(
-            request,
-            "Sign-in failed. Check your email or username and password, then try again.",
-            "error",
-        )
-        return _redirect(request, "login")
-
-
-@app.post("/password-reset", name="password_reset")
-async def password_reset(request: Request):
-    form = await request.form()
-    _verify_csrf(request, form)
-    email = str(form.get("email", "")).strip().lower()
-    if not email:
-        flash(request, "Enter your account email to request a reset link.", "error")
-        return _redirect(request, "login")
-    try:
-        await run_in_threadpool(
-            lambda: create_supabase_client().auth.reset_password_email(email)
-        )
-    except Exception:
-        logger.exception("Supabase password reset request failed.")
-        flash(request, "Could not request a password reset. Please try again later.", "error")
-        return _redirect(request, "login")
-    flash(request, "If the account exists, Supabase will send a password reset email.", "success")
-    return _redirect(request, "login")
-
-
-@app.post("/logout", name="logout")
-async def logout(request: Request):
-    form = await request.form()
-    _verify_csrf(request, form)
-    delete_session(request.session.get("auth_session_id"))
-    request.session.clear()
-    flash(request, "You have signed out.", "success")
-    return _redirect(request, "login")
-
-
-@app.get("/dashboard", name="dashboard")
-async def dashboard(request: Request):
-    return _redirect(request, "portal_page", 302, role="student", section="dashboard")
-
-
-@app.get("/portal/{role}", name="portal_home")
-async def portal_home(request: Request, role: str):
-    profile = await run_in_threadpool(
-        _set_authenticated_user,
-        request,
-        request.session.get("auth_session_id"),
-    )
-    if not profile:
-        request.session.pop("auth_session_id", None)
-        flash(request, "Please sign in with an active campus account.", "error")
-        return _redirect(request, "login")
-    current_role = profile["role"]
-    if role != current_role:
-        return _redirect(
-            request, "portal_page", 302, role=current_role, section="dashboard"
-        )
-    if role not in PORTALS:
-        raise HTTPException(status_code=404)
-    return _redirect(
-        request, "portal_page", 302, role=role, section="dashboard"
-    )
-
-
 def _handle_portal_post(request, role, section, form):
-    profile = request.state.profile
-    user = request.state.user
-    client = request.state.supabase
-    access_token = getattr(request.state, "access_token", None)
+    profile = request.profile
+    user = request.supabase_user
+    client = request.supabase
+    access_token = getattr(request, "access_token", None)
     if section in ("feedback", "complaints") and role == "student":
         subject = str(form.get("subject", "")).strip()
         message = str(form.get("message", "")).strip()
@@ -621,7 +440,7 @@ def _handle_portal_post(request, role, section, form):
                 "term": term,
             }, on_conflict="course_id,student_id,term").execute()
             return "The student was enrolled."
-        raise HTTPException(status_code=400, detail="Unknown course management action.")
+        raise PortalRequestError(400, "Unknown course management action.")
     if role == "admin" and section == "users":
         action = form.get("action")
         if action == "delete-account":
@@ -663,7 +482,7 @@ def _handle_portal_post(request, role, section, form):
                     raise ValueError("Choose a semester between 1 and 8.")
             _create_campus_account(account, access_token)
             return "The campus account was created and assigned to its department."
-        raise HTTPException(status_code=400, detail="Unknown account management action.")
+        raise PortalRequestError(400, "Unknown account management action.")
     if role == "admin" and section == "departments":
         action = form.get("action")
         if action == "delete-department":
@@ -697,7 +516,7 @@ def _handle_portal_post(request, role, section, form):
                 raise ValueError("That department is already in the list.")
             client.table("departments").insert({"name": department_name}).execute()
             return "The department was added."
-        raise HTTPException(status_code=400, detail="Unknown department management action.")
+        raise PortalRequestError(400, "Unknown department management action.")
     if role == "admin" and section == "announcements":
         title = str(form.get("title", "")).strip()
         body = str(form.get("body", "")).strip()
@@ -713,124 +532,4 @@ def _handle_portal_post(request, role, section, form):
             "created_by": str(user.id),
         }).execute()
         return "The announcement was published."
-    raise HTTPException(status_code=404)
-
-
-@app.api_route("/portal/{role}/{section}", methods=["GET", "POST"], name="portal_page")
-async def portal_page(request: Request, role: str, section: str):
-    profile = await run_in_threadpool(
-        _set_authenticated_user,
-        request,
-        request.session.get("auth_session_id"),
-    )
-    if not profile:
-        request.session.pop("auth_session_id", None)
-        flash(request, "Please sign in with an active campus account.", "error")
-        return _redirect(request, "login")
-    current_role, portal = _current_portal(request)
-    if role != current_role:
-        return _redirect(
-            request, "portal_page", role=current_role, section="dashboard"
-        )
-    if role not in PORTALS or section not in {
-        key for key, _label in PORTALS[role]["navigation"]
-    }:
-        raise HTTPException(status_code=404)
-    if request.method == "POST":
-        form = await request.form()
-        _verify_csrf(request, form)
-        try:
-            message = await run_in_threadpool(
-                _handle_portal_post, request, role, section, form
-            )
-            flash(request, message, "success")
-            return _redirect(request, "portal_page", role=role, section=section)
-        except ValueError as error:
-            flash(request, str(error), "error")
-        except RuntimeError as error:
-            logger.warning("Supabase management action could not complete: %s", error)
-            flash(request, str(error), "error")
-        except HTTPException:
-            raise
-        except Exception:
-            logger.exception("Supabase form submission failed.")
-            flash(
-                request,
-                "Could not save this change. Check your access and database policies, then try again.",
-                "error",
-            )
-    try:
-        page = await run_in_threadpool(
-            build_live_page, role, section, request.state.profile, request.state.supabase
-        )
-    except Exception:
-        logger.exception("Could not load Supabase data for portal page.")
-        page = {
-            "key": section,
-            "title": section.replace("-", " ").title(),
-            "summary": "Supabase data could not be loaded.",
-            "metrics": [],
-            "columns": [],
-            "rows": [],
-            "form_fields": [],
-            "form_title": "",
-            "data_error": "Could not load this page's data. Check your Supabase schema, account access, and Row Level Security policies.",
-        }
-        status_code = 503
-    else:
-        status_code = 200
-    return templates.TemplateResponse(
-        request=request,
-        name="portal.html",
-        context={
-            "role": role,
-            "portal": portal,
-            "page": page,
-            "csrf_token": _csrf_token(request),
-        },
-        status_code=status_code,
-    )
-
-
-@app.get("/map", name="map_page")
-async def map_page(request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="map.html",
-        context={"run_layout_tests": request.query_params.get("test") == "1"},
-    )
-
-
-@app.get("/health/supabase", name="supabase_health")
-async def supabase_health():
-    try:
-        response = await run_in_threadpool(
-            lambda: get_supabase_client().table("courses").select("id").limit(1).execute()
-        )
-    except RuntimeError as error:
-        return JSONResponse(
-            status_code=503,
-            content={"status": "not_configured", "message": str(error)},
-        )
-    except Exception:
-        logger.exception("Supabase health check failed.")
-        return JSONResponse(
-            status_code=503,
-            content={"status": "unavailable", "message": "Supabase could not be reached."},
-        )
-    if not isinstance(response.data, list):
-        logger.error("Supabase REST endpoint returned a non-JSON response.")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "invalid_response",
-                "message": "Supabase returned a non-JSON response. Check that SUPABASE_URL is the project's API URL.",
-            },
-        )
-    return {"status": "connected"}
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="127.0.0.1", port=int(os.getenv("PORT", "5000")))
+    raise Http404

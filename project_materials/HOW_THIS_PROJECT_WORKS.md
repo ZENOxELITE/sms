@@ -1,21 +1,33 @@
 # How this project works
 
-This is a beginner-friendly guide for understanding and presenting the Student Management System. Read it from top to bottom: browser → FastAPI → Supabase.
+This is a beginner-friendly guide for understanding and presenting the Student Management System. Read it from top to bottom: browser → Django → Supabase.
 
 ## Project structure
 
 ```text
 sms/
-├── app.py                         FastAPI routes, login, role checks, form handling
+├── manage.py                      Django management commands and local server
+├── run_local.bat                  Windows one-click setup, checks, and local launch
+├── sms_project/
+│   ├── settings.py                Django settings, sessions, templates, and static files
+│   ├── urls.py                    Application route table
+│   ├── wsgi.py                    Production WSGI entry point
+│   └── asgi.py                    ASGI entry point
+├── portal/
+│   ├── views.py                   Login, role portal, map, and health views
+│   ├── services.py                Supabase authentication and form actions
+│   └── jinja2.py                  Jinja helpers used by the templates
 ├── auth_sessions.py               Keeps Supabase tokens on the application server
 ├── portal_data.py                 Reads Supabase records for each portal page
 ├── supabase_client.py             Creates Supabase clients from environment settings
 ├── requirements.txt               Python packages needed by the project
-├── project_materials/              Guides, project map, and original reference screenshots
+├── project_materials/              Guides, screenshots, and static design concepts
 │   ├── HOW_THIS_PROJECT_WORKS.md
 │   ├── PROJECT-MINDMAP.md
 │   ├── SUPABASE_SETUP.md
-│   └── Screenshot *.png
+│   ├── Screenshot *.png            Original design references
+│   ├── logo_sms.jpg                Project logo reference
+│   └── design-proposal/            Static dashboard concept previews
 ├── scripts/
 │   └── seed_demo_accounts.py      Generates optional synthetic demo accounts
 ├── .env                           Private project URL, public key, existing session secret
@@ -23,13 +35,12 @@ sms/
 ├── templates/
 │   ├── login.html                 Username/password sign-in and reset link
 │   ├── portal.html                Shared template for every role and section
-│   ├── map.html                   Interactive project map page
-│   └── dashboard.html             Earlier dashboard mock-up
+│   └── map.html                   Interactive project map page
 ├── static/
 │   ├── style.css                  Login and portal design
 │   ├── map.css                    Project map design
 │   ├── mindmap.js                 Tree/radial map behavior
-│   ├── mindmap-data.js            Map content and layout test examples
+│   ├── mindmap-data.js            Project map content
 │   └── mindmap-layout.test.js     Browser layout checks for sample maps
 ├── supabase/
 │   ├── schema.sql                 Tables, columns, indexes, starter RLS
@@ -46,16 +57,18 @@ sms/
     └── test_app.py                Local route and auth behavior tests
 ```
 
+The HTML previews in `project_materials/design-proposal/` are design references. The running site uses the templates and styles in `templates/` and `static/`.
+
 ## What happens when someone signs in
 
 ```text
 1. User chooses email or username and enters the account name + password
              │
              ▼
-2. If username was chosen, FastAPI asks a private Supabase Edge Function to resolve it to Auth email
+2. If username was chosen, Django asks a private Supabase Edge Function to resolve it to Auth email
              │
              ▼
-3. FastAPI sends email + password to Supabase Auth (email is used directly when chosen)
+3. Django sends email + password to Supabase Auth (email is used directly when chosen)
              │
              ▼
 4. Supabase checks the password and returns tokens
@@ -63,16 +76,16 @@ sms/
              ├── no profile or unknown role → access is refused
              │
              ▼
-5. FastAPI looks up the user's row in public.profiles
+5. Django looks up the user's row in public.profiles
              │
              ▼
-6. FastAPI stores tokens on the server and gives the browser a signed session cookie
+6. Django stores tokens in the application process and gives the browser a signed session cookie containing an opaque session ID
              │
              ▼
-7. FastAPI reads the role from profiles, never from a user-selected tab
+7. Django reads the role from profiles, never from a user-selected tab
              │
              ▼
-8. FastAPI displays the matching portal and navigation
+8. Django displays the matching portal and navigation
 ```
 
 ## The roles and their sections
@@ -109,23 +122,23 @@ Admin
 └── Announcements
 ```
 
-All role sections share `templates/portal.html`. FastAPI supplies the page title, table columns, records, and allowed form fields; Jinja fills those into one layout. This avoids writing a separate copy of the same sidebar and table markup for every page.
+All role sections share `templates/portal.html`. Django supplies the page title, table columns, records, and allowed form fields; Jinja fills those into one layout. This avoids writing a separate copy of the same sidebar and table markup for every page.
 
 ## How a page reads and saves data
 
 ```text
 GET /portal/student/attendance
-    → app.py checks signed-in session and role
+    → portal/views.py checks signed-in session and role
     → portal_data.py queries attendance using the user's access token
     → Supabase checks Row Level Security policies
     → portal.html renders only the records Supabase allowed
 
 POST /portal/student/feedback
-    → app.py checks session and CSRF token
+    → Django session and CSRF middleware protect the form
     → validates the subject and message
     → inserts into student_requests using the signed-in student's ID
     → Supabase RLS checks that this student may submit their own request
-    → FastAPI redirects and shows a success message
+    → Django redirects and shows a success message
 ```
 
 Each portal page checks the Supabase token and loads the matching profile. Those independent checks run at the same time, as do independent dashboard data reads, so their network waits do not stack. Page-specific data still comes from Supabase on each full-page navigation; the remaining load time depends on the network and Supabase response speed.
@@ -151,17 +164,18 @@ student_requests ── feedback and complaints submitted by students
 
 The admin Departments page adds academic units and only removes departments that no account or course still uses. The Students & Staff page creates student, teacher, and HOD Auth accounts with matching profiles assigned to a department; student profiles can optionally be tagged with a program and semester. It can also permanently remove those non-admin accounts and their dependent records. Administrator accounts are protected. The admin course page adds courses, schedules classes and exams, assigns teachers, and enrolls students. Synthetic presentation accounts are marked separately from real campus records. The optional seeder can also add operational synthetic courses, teacher assignments, and cohort enrollments so the class, exam, and attendance workflow can be demonstrated. These records are fictional and are not official course offerings or real student/staff data. The student exam datasheet reads from `exams`, while the timetable reads from `class_sessions`.
 
-The database, not just the FastAPI page, checks access. Row Level Security (RLS) means a request for one student's data must not return another student's private data, even if someone tries to change a URL.
+The database, not just the Django page, checks access. Row Level Security (RLS) means a request for one student's data must not return another student's private data, even if someone tries to change a URL.
 
 ## Build and run
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-uvicorn app:app --reload --host 127.0.0.1 --port 5000
+$env:DJANGO_DEBUG = "true"
+python manage.py runserver 127.0.0.1:5000
 ```
 
-Open `http://127.0.0.1:5000`. Configure `.env`, deploy the username lookup Edge Function, and set a unique username on each matching `profiles` row. For a new Supabase project, apply `schema.sql` and then `role_policies.sql`; if the earlier tables already exist, apply the updated `role_policies.sql`. Follow [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for the function and secret setup. `python app.py` also starts Uvicorn on the same local port. Run local checks with:
+Open `http://127.0.0.1:5000`. Configure `.env`, deploy the username lookup Edge Function, and set a unique username on each matching `profiles` row. For a new Supabase project, apply `schema.sql` and then `role_policies.sql`; if the earlier tables already exist, apply the updated `role_policies.sql`. Follow [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for the function and secret setup. On Windows, double-click `run_local.bat` to install dependencies, run tests, check Supabase, and start the local server. On Render, the included `Procfile` collects static files and starts Gunicorn. Run Python checks manually with:
 
 ```powershell
 python -m unittest discover -s tests
@@ -169,6 +183,6 @@ python -m unittest discover -s tests
 
 ## Short presentation explanation
 
-> “I built this student management system with FastAPI and Jinja templates. FastAPI handles URLs, sessions, and page data; HTML and CSS build the pages; Supabase Auth checks account passwords; and Supabase Postgres stores student, course, class, exam, attendance, grade, invoice, announcement, and request records. A private Edge Function lets people sign in with usernames without exposing their email mapping. The role is read from the database, and Row Level Security protects the data. The shared portal template lets all four roles use the same layout while showing different navigation and records.”
+> “I built this student management system with Django and Jinja templates. Django handles URLs, sessions, and page data; HTML and CSS build the pages; Supabase Auth checks account passwords; and Supabase Postgres stores student, course, class, exam, attendance, grade, invoice, announcement, and request records. A private Edge Function lets people sign in with usernames without exposing their email mapping. The role is read from the database, and Row Level Security protects the data. The shared portal template lets all four roles use the same layout while showing different navigation and records.”
 
 For a live demonstration, sign in with a prepared test account, show its role-specific pages, submit a feedback request, and then show the new row in Supabase Table Editor. Do not show `.env` or copy its values into slides.

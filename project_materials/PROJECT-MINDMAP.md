@@ -54,7 +54,7 @@ mindmap
         Courses and classes
         Announcements
     Application
-      FastAPI routes
+      Django URL routes and views
       HTML templates
       CSS styling
       Supabase database

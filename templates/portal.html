@@ -19,7 +19,7 @@
     <div class="top-actions">
       <a href="{{ url_for('map_page') }}">Project map</a>
       <form action="{{ url_for('logout') }}" method="post">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
         <button type="submit" class="topbar-link">Sign out</button>
       </form>
     </div>
@@ -104,7 +104,7 @@
                 <td class="row-actions">
                   {% if row_action_value %}
                   <form method="post" onsubmit="return confirm({{ page.row_action_confirm|tojson }});">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
                     <input type="hidden" name="action" value="{{ page.row_action }}">
                     <input type="hidden" name="{{ page.row_action_field }}" value="{{ row_action_value }}">
                     <button class="button-danger" type="submit">{{ page.row_action_name }}</button>
@@ -159,7 +159,7 @@
       <section class="portal-card portal-form-card">
         <h2>{{ page.form_title }}</h2>
         <form class="portal-form" method="post">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="{{ page.form_action or page.key }}">
           {% for field in page.form_fields %}
           <label for="{{ field.name }}">{{ field.label }}
@@ -191,7 +191,7 @@
         <h2>{{ extra.title }}</h2>
         {% if extra.ready %}
         <form class="portal-form" method="post">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="{{ extra.action }}">
           {% for field in extra.fields %}
           <label for="{{ field.name }}">{{ field.label }}
