@@ -120,9 +120,9 @@
               {% for row in page.rows %}
               <tr>
                 {% set row_action_value = page.row_actions[loop.index0] if page.row_actions else none %}
-                {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
+                {% for cell in row %}<td data-label="{{ page.columns[loop.index0] }}">{{ cell }}</td>{% endfor %}
                 {% if page.row_actions %}
-                <td class="row-actions">
+                <td class="row-actions" data-label="Actions">
                   {% if row_action_value %}
                   <form method="post" onsubmit="return confirm({{ page.row_action_confirm|tojson }});">
                     <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
@@ -164,7 +164,7 @@
             <thead><tr>{% for column in table.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
             <tbody>
               {% for row in table.rows %}
-              <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+              <tr>{% for cell in row %}<td data-label="{{ table.columns[loop.index0] }}">{{ cell }}</td>{% endfor %}</tr>
               {% endfor %}
               {% if not table.rows %}
               <tr class="empty-state"><td colspan="{{ table.columns|length }}">No records are available for this account yet.</td></tr>
@@ -256,6 +256,11 @@
   <div class="notification-toasts" data-notification-toasts aria-live="polite"></div>
   {% endif %}
   <script>
+    const selectedNav = document.querySelector(".side-nav a.selected");
+    const sideNav = document.querySelector(".side-nav");
+    if (selectedNav && sideNav && sideNav.scrollWidth > sideNav.clientWidth) {
+      sideNav.scrollLeft = selectedNav.offsetLeft - (sideNav.clientWidth - selectedNav.offsetWidth) / 2;
+    }
     const accountRole = document.querySelector("#role");
     const studentNumber = document.querySelector("#student_number");
     if (accountRole && studentNumber) {

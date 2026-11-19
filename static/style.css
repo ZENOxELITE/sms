@@ -189,6 +189,9 @@ button, input, select { font: inherit; }
   .portal-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .portal-card { min-width: 0; }
   .table-scroll { max-width: 100%; }
+  .portal-card-heading { align-items: stretch; flex-direction: column; gap: 10px; }
+  .table-tools { justify-content: space-between; }
+  .table-search { flex: 1; width: auto; min-width: 0; }
 }
 @media (max-width: 600px) {
   .login-page { min-height: 100svh; align-items: start; padding: 16px 12px; }
@@ -209,6 +212,9 @@ button, input, select { font: inherit; }
   .top-actions { flex: 0 0 auto; gap: 9px; font-size: 10px; }
   .topbar-link { font-size: 11px; }
   .notification-toasts { top: auto; right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+  .notification-toast { padding: 11px 12px; }
+  .notification-toast-body { display: none; }
+  .notification-toast-actions a, .notification-toast-actions button { min-height: 40px; display: inline-grid; place-items: center; }
   .breadcrumb { height: auto; min-height: 34px; overflow: hidden; padding: 7px 12px; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
   .dashboard-content { width: 100%; min-width: 0; padding: 16px 12px; }
   .academic-card { grid-template-columns: 1fr; }
@@ -230,10 +236,14 @@ button, input, select { font: inherit; }
   .table-pagination button { width: 36px; height: 36px; flex: 0 0 36px; }
   .table-page-status { min-width: 82px; }
   .table-scroll { width: 100%; max-width: 100%; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
-  .portal-table { min-width: max-content; }
-  .portal-table th, .portal-table td { padding: 10px 9px; }
-  .portal-table th { font-size: 11px; }
-  .portal-table td { font-size: 13px; }
+  .portal-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .portal-table tbody tr { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .portal-table tbody tr:last-child { border-bottom: 0; }
+  .portal-table td { display: grid; grid-template-columns: minmax(78px, 34%) minmax(0, 1fr); gap: 10px; padding: 5px 2px; border-bottom: 0; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+  .portal-table td::before { content: attr(data-label); color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .3px; line-height: 1.9; text-transform: uppercase; }
+  .portal-table td:not([data-label]) { display: block; }
+  .portal-table td:not([data-label])::before { content: none; }
+  .portal-table .row-actions { white-space: normal; }
   .portal-card { overflow: hidden; margin-bottom: 13px; padding: 13px; }
   .portal-card h2 { font-size: 16px; }
   .portal-form { gap: 12px; }

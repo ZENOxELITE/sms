@@ -1177,6 +1177,7 @@ class PortalAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Exam week", response.content)
+        self.assertIn(b'<td data-label="Announcement">Exams start Monday</td>', response.content)
         self.assertIn(b'data-unread="0"', response.content)
         self.assertEqual(database.writes, [
             {"profile_id": "student-1", "last_seen_at": "2026-11-12T09:00:00+00:00"},
