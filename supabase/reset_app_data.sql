@@ -3,6 +3,7 @@
 begin;
 
 truncate table
+  public.notification_reads,
   public.attendance_records,
   public.student_requests,
   public.grades,

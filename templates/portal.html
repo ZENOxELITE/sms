@@ -9,6 +9,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Epunda+Sans:wght@400;500;600;700&family=Epunda+Slab:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
   <script src="{{ url_for('static', path='portal-tables.js') }}" defer></script>
+  {% if notifications is not none %}
+  <script src="{{ url_for('static', path='notifications.js') }}" defer></script>
+  {% endif %}
 </head>
 <body class="dashboard-page">
   <header class="topbar">
@@ -17,6 +20,21 @@
     </a>
     <span class="site-title">Student Management System</span>
     <div class="top-actions">
+      {% if notifications is not none %}
+      <a class="notification-bell" href="{{ url_for('portal_page', role=role, section='notifications') }}"
+         data-notification-root
+         data-summary-url="{{ url_for('notification_summary') }}"
+         data-notifications-url="{{ url_for('portal_page', role=role, section='notifications') }}"
+         data-on-notifications-page="{{ 'true' if page.key == 'notifications' else 'false' }}"
+         data-unread="{{ notifications.unread }}"
+         aria-label="Notifications{{ ': ' ~ notifications.unread ~ ' unread' if notifications.unread else '' }}">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/>
+        </svg>
+        <span class="notification-count" data-notification-count {% if not notifications.unread %}hidden{% endif %}>{{ notifications.unread if notifications.unread < 100 else '99+' }}</span>
+      </a>
+      <script type="application/json" id="notification-latest">{{ notifications.latest|tojson }}</script>
+      {% endif %}
       <a href="{{ url_for('map_page') }}">Project map</a>
       <form action="{{ url_for('logout') }}" method="post">
         <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
@@ -37,6 +55,9 @@
         {% for key, label in portal.navigation %}
         <a class="{{ 'selected' if page.key == key else '' }}" href="{{ url_for('portal_page', role=role, section=key) }}">
           <span>{{ label[0] }}</span>{{ label }}
+          {% if key == 'notifications' and notifications is not none %}
+          <b class="nav-count" data-notification-count {% if not notifications.unread %}hidden{% endif %}>{{ notifications.unread if notifications.unread < 100 else '99+' }}</b>
+          {% endif %}
         </a>
         {% endfor %}
       </nav>
@@ -231,6 +252,9 @@
       <p class="portal-note">Information shown here is read from the connected Supabase project and restricted by your account role.</p>
     </main>
   </div>
+  {% if notifications is not none %}
+  <div class="notification-toasts" data-notification-toasts aria-live="polite"></div>
+  {% endif %}
   <script>
     const accountRole = document.querySelector("#role");
     const studentNumber = document.querySelector("#student_number");

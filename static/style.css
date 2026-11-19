@@ -156,6 +156,28 @@ button, input, select { font: inherit; }
 .reset-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
 .reset-row input { min-width: 0; padding: 9px; border: 1px solid #d2dbe5; border-radius: 4px; }
 .reset-row button { padding: 8px 10px; color: var(--navy); background: white; border: 1px solid #d2dbe5; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.notification-bell { position: relative; display: inline-grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; }
+.notification-bell:hover, .notification-bell:focus-visible { background: #ffffff1f; }
+.notification-bell:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.notification-count { position: absolute; top: 0; right: -3px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center; color: #fff; background: #d43f46; border: 2px solid var(--navy); border-radius: 9px; font-size: 10px; font-weight: 700; line-height: 1; }
+.notification-count[hidden], .nav-count[hidden] { display: none; }
+.side-nav a .nav-count { min-width: 20px; margin-left: auto; padding: 2px 6px; color: #fff; background: #d43f46; border-radius: 10px; font-size: 11px; font-weight: 700; text-align: center; }
+.notification-bell.ringing svg { animation: bell-ring .9s ease-in-out; transform-origin: 50% 10%; }
+.notification-bell.ringing .notification-count { animation: badge-pop .45s ease-out; }
+@keyframes bell-ring { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(16deg); } 30% { transform: rotate(-14deg); } 45% { transform: rotate(10deg); } 60% { transform: rotate(-6deg); } 75% { transform: rotate(3deg); } }
+@keyframes badge-pop { 0% { transform: scale(.4); } 70% { transform: scale(1.2); } 100% { transform: scale(1); } }
+.notification-toasts { position: fixed; top: 62px; right: 16px; z-index: 50; display: grid; gap: 10px; width: min(340px, calc(100vw - 32px)); }
+.notification-toast { padding: 13px 14px; color: var(--text); background: #fff; border: 1px solid var(--line); border-left: 4px solid #d43f46; border-radius: 6px; box-shadow: 0 8px 24px #1b365d2e; animation: toast-in .25s ease-out; }
+.notification-toast strong { display: block; color: #b42318; font-size: 12px; letter-spacing: .3px; text-transform: uppercase; }
+.notification-toast p { margin: 5px 0 0; overflow-wrap: anywhere; }
+.notification-toast-title { color: var(--navy-dark); font-weight: 700; }
+.notification-toast-body { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.notification-toast-actions { display: flex; gap: 8px; margin-top: 10px; }
+.notification-toast-actions a, .notification-toast-actions button { padding: 6px 12px; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; }
+.notification-toast-actions a { color: #fff; background: var(--blue); }
+.notification-toast-actions button { color: var(--navy); background: #fff; border: 1px solid #cbd5e1; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .notification-bell.ringing svg, .notification-bell.ringing .notification-count, .notification-toast { animation: none; } }
 .login-footnote { margin: 16px 0 0; color: #77869a; font-size: 11px; line-height: 1.5; }
 @media (max-width: 900px) {
   .dashboard-layout { grid-template-columns: 170px minmax(0, 1fr); }
@@ -186,6 +208,7 @@ button, input, select { font: inherit; }
   .site-title { min-width: 0; flex: 1; font-size: 11px; }
   .top-actions { flex: 0 0 auto; gap: 9px; font-size: 10px; }
   .topbar-link { font-size: 11px; }
+  .notification-toasts { top: auto; right: 12px; bottom: 12px; width: calc(100vw - 24px); }
   .breadcrumb { height: auto; min-height: 34px; overflow: hidden; padding: 7px 12px; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
   .dashboard-content { width: 100%; min-width: 0; padding: 16px 12px; }
   .academic-card { grid-template-columns: 1fr; }

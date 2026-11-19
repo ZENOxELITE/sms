@@ -12,7 +12,12 @@ from dotenv import load_dotenv
 from django.http import Http404
 
 from auth_sessions import delete_session, get_session, save_session, update_session
-from portal_data import CURRICULUM_PROGRAMS, build_live_page
+from portal_data import (
+    CURRICULUM_PROGRAMS,
+    build_live_page,
+    load_notifications,
+    unread_notifications,
+)
 from supabase_client import create_supabase_client, get_supabase_client
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,6 +54,7 @@ PORTALS = {
         "navigation": [
             ("dashboard", "Dashboard"), ("classes", "Classes"),
             ("attendance-entry", "Attendance Entry"), ("results-entry", "Results Entry"),
+            ("notifications", "Notifications"),
         ],
     },
     "hod": {
@@ -58,7 +64,7 @@ PORTALS = {
         "faculty": "Faculty of Business Administration",
         "navigation": [
             ("dashboard", "Dashboard"), ("department", "Department Overview"),
-            ("review", "Class & Result Review"),
+            ("review", "Class & Result Review"), ("notifications", "Notifications"),
         ],
     },
     "admin": {
@@ -73,6 +79,74 @@ PORTALS = {
         ],
     },
 }
+
+
+ANNOUNCEMENT_AUDIENCES = ("all", "student", "teacher", "hod")
+SEEN_SESSION_KEY = "notifications_seen_at"
+
+
+def has_notifications(role):
+    return any(key == "notifications" for key, _label in PORTALS.get(role, {}).get("navigation", []))
+
+
+def _last_seen_notifications(request, session_fallback):
+    """Read when this account last opened Notifications (database first, session as fallback)."""
+    try:
+        response = (
+            request.supabase.table("notification_reads")
+            .select("last_seen_at")
+            .eq("profile_id", str(request.profile["id"]))
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0].get("last_seen_at")
+    except Exception:
+        logger.warning("Notification read state is unavailable; using the browser session instead.")
+    return session_fallback
+
+
+def notification_summary(request, role):
+    """Unread announcement count plus the newest unread items, or None when unavailable."""
+    if not has_notifications(role):
+        return None
+    session_fallback = request.session.get(SEEN_SESSION_KEY)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            notices_future = executor.submit(load_notifications, request.supabase, role)
+            seen_future = executor.submit(_last_seen_notifications, request, session_fallback)
+            notices = notices_future.result()
+            last_seen_at = seen_future.result()
+    except Exception as error:
+        logger.warning("Could not load the notification count: %s", error)
+        return None
+    unread = unread_notifications(notices, last_seen_at)
+    return {
+        "unread": len(unread),
+        "latest": [
+            {
+                "id": item.get("id"),
+                "title": item.get("title", ""),
+                "body": item.get("body", ""),
+                "published_at": item.get("published_at"),
+            }
+            for item in unread[:5]
+        ],
+    }
+
+
+def mark_notifications_seen(request, latest_published_at):
+    """Remember the newest announcement this account has now seen."""
+    if not latest_published_at:
+        return
+    request.session[SEEN_SESSION_KEY] = latest_published_at
+    try:
+        request.supabase.table("notification_reads").upsert(
+            {"profile_id": str(request.profile["id"]), "last_seen_at": latest_published_at},
+            on_conflict="profile_id",
+        ).execute()
+    except Exception:
+        logger.warning("Could not save notification read state; kept it in the session.")
 
 
 def flash(request, message, category="message"):
@@ -523,6 +597,8 @@ def _handle_portal_post(request, role, section, form):
         audience = str(form.get("audience", "all"))
         if not title or not body:
             raise ValueError("Enter a title and announcement.")
+        if audience not in ANNOUNCEMENT_AUDIENCES:
+            raise ValueError("Choose who should receive this announcement.")
         client.table("announcements").insert({
             "title": title,
             "body": body,

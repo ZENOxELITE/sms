@@ -11,6 +11,7 @@ urlpatterns = [
     path("dashboard", views.dashboard, name="dashboard"),
     path("portal/<str:role>", views.portal_home, name="portal_home"),
     path("portal/<str:role>/<str:section>", views.portal_page, name="portal_page"),
+    path("notifications/summary", views.notification_summary, name="notification_summary"),
     path("map", views.map_page, name="map_page"),
     path("health/supabase", views.supabase_health, name="supabase_health"),
 ]
