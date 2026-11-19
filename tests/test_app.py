@@ -1114,6 +1114,114 @@ class PortalAppTests(unittest.TestCase):
         self.assertIn("Software Engineering department", page["record_note"])
         self.assertIn("same department name", page["record_note"])
 
+    def _signed_in(self, profile, database):
+        user = SimpleNamespace(id=profile["id"], email=f'{profile["role"]}@example.test')
+
+        def set_test_user(_request, _session_id):
+            _request.profile = profile
+            _request.supabase_user = user
+            _request.supabase = database
+            return profile
+
+        return patch.object(app_module, "_set_authenticated_user", side_effect=set_test_user)
+
+    ANNOUNCEMENTS = [
+        {"id": 1, "title": "Old notice", "body": "Seen already", "audience": "all",
+         "published": True, "published_at": "2026-11-01T09:00:00+00:00"},
+        {"id": 2, "title": "Exam week", "body": "Exams start Monday", "audience": "student",
+         "published": True, "published_at": "2026-11-10T09:00:00+00:00"},
+        {"id": 3, "title": "Fee reminder", "body": "Pay by Friday", "audience": "all",
+         "published": True, "published_at": "2026-11-12T09:00:00+00:00"},
+        {"id": 4, "title": "Staff meeting", "body": "Teachers only", "audience": "teacher",
+         "published": True, "published_at": "2026-11-13T09:00:00+00:00"},
+        {"id": 5, "title": "Draft", "body": "Not yet", "audience": "all",
+         "published": False, "published_at": None},
+    ]
+
+    def test_unread_notifications_counts_items_after_last_seen(self):
+        from portal_data import unread_notifications
+        notices = [{"published_at": "2026-11-12T09:00:00Z"}, {"published_at": "2026-11-10T09:00:00+00:00"},
+                   {"published_at": "2026-11-01T09:00:00+00:00"}]
+        self.assertEqual(len(unread_notifications(notices, None)), 3)
+        self.assertEqual(len(unread_notifications(notices, "2026-11-05T00:00:00+00:00")), 2)
+        self.assertEqual(len(unread_notifications(notices, "2026-11-12T09:00:00+00:00")), 0)
+
+    def test_student_portal_shows_unread_notification_badge(self):
+        profile = {"id": "student-1", "role": "student", "full_name": "Test Student"}
+        database = FakeReadClient({
+            "announcements": self.ANNOUNCEMENTS,
+            "notification_reads": [{"profile_id": "student-1", "last_seen_at": "2026-11-05T00:00:00+00:00"}],
+        })
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.get("/portal/student/dashboard")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"data-notification-root", response.content)
+        self.assertIn(b'data-unread="2"', response.content)
+        self.assertIn(b'aria-label="Notifications: 2 unread"', response.content)
+        self.assertEqual(len(re.findall(rb"data-notification-count\s*>2<", response.content)), 2)
+        self.assertIn(b"Fee reminder", response.content)
+        self.assertNotIn(b"Staff meeting", response.content)
+        self.assertIn(b"notifications.js", response.content)
+
+    def test_opening_notifications_marks_them_seen(self):
+        profile = {"id": "student-1", "role": "student", "full_name": "Test Student"}
+        database = FakeWriteClient({"announcements": [
+            item for item in self.ANNOUNCEMENTS
+            if item["published"] and item["audience"] in ("all", "student")
+        ]})
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.get("/portal/student/notifications")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Exam week", response.content)
+        self.assertIn(b'<td data-label="Announcement">Exams start Monday</td>', response.content)
+        self.assertIn(b'data-unread="0"', response.content)
+        self.assertEqual(database.writes, [
+            {"profile_id": "student-1", "last_seen_at": "2026-11-12T09:00:00+00:00"},
+        ])
+        self.assertEqual(self._read_session()["notifications_seen_at"], "2026-11-12T09:00:00+00:00")
+
+    def test_notification_summary_endpoint_reports_unread_count(self):
+        profile = {"id": "teacher-1", "role": "teacher", "full_name": "Test Teacher"}
+        database = FakeReadClient({"announcements": self.ANNOUNCEMENTS})
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.get("/notifications/summary")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["unread"], 3)
+        self.assertEqual([item["title"] for item in data["latest"]],
+                         ["Staff meeting", "Fee reminder", "Old notice"])
+
+    def test_notification_summary_requires_sign_in(self):
+        response = self.client.get("/notifications/summary")
+        self.assertEqual(response.status_code, 401)
+
+    def test_teacher_and_hod_navigation_include_notifications(self):
+        for role in ("student", "teacher", "hod"):
+            self.assertTrue(app_module.has_notifications(role))
+        self.assertFalse(app_module.has_notifications("admin"))
+
+    def test_admin_announcement_rejects_unknown_audience(self):
+        profile = {"id": "admin-1", "role": "admin", "full_name": "Test Admin"}
+        database = FakeWriteClient()
+        token = self._csrf()
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.post("/portal/admin/announcements", data={
+                "csrfmiddlewaretoken": token, "action": "add-announcement",
+                "title": "Hello", "body": "World", "audience": "everyone-else",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(database.writes, [])
+        self.assertIn(b"Choose who should receive this announcement.", response.content)
+
 
 if __name__ == "__main__":
     unittest.main()

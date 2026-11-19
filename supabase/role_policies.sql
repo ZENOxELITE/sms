@@ -458,3 +458,25 @@ create policy "Users can read allowed requests"
 create policy "Students can submit requests"
   on public.student_requests for insert to authenticated
   with check (student_id = (select auth.uid()) and public.current_profile_role() = 'student');
+
+-- Notification badge: remembers the newest announcement each account has seen,
+-- so the portal can show an unread count on every device and after sign-out.
+create table if not exists public.notification_reads (
+  profile_id uuid primary key references public.profiles (id) on delete cascade,
+  last_seen_at timestamptz not null default now()
+);
+alter table public.notification_reads enable row level security;
+
+drop policy if exists "Users can read their notification state" on public.notification_reads;
+drop policy if exists "Users can create their notification state" on public.notification_reads;
+drop policy if exists "Users can update their notification state" on public.notification_reads;
+create policy "Users can read their notification state"
+  on public.notification_reads for select to authenticated
+  using (profile_id = (select auth.uid()));
+create policy "Users can create their notification state"
+  on public.notification_reads for insert to authenticated
+  with check (profile_id = (select auth.uid()));
+create policy "Users can update their notification state"
+  on public.notification_reads for update to authenticated
+  using (profile_id = (select auth.uid()))
+  with check (profile_id = (select auth.uid()));

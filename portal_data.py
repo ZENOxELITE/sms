@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 CURRICULUM_PROGRAMS = (
@@ -59,6 +59,35 @@ def _parallel_filtered_reads(client, *queries):
             for table, columns, filters in queries
         ]
         return [future.result() for future in futures]
+
+
+def load_notifications(client, role):
+    """Published announcements addressed to everyone or to this role, newest first."""
+    notices = _read_filtered(
+        client, "announcements", "id,title,body,audience,published_at",
+        (("eq", "published", True), ("in_", "audience", ["all", role])),
+    )
+    notices.sort(key=lambda item: item.get("published_at") or "", reverse=True)
+    return notices
+
+
+def _timestamp(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def unread_notifications(notices, last_seen_at):
+    """Announcements published after the account last opened its notifications."""
+    seen = _timestamp(last_seen_at)
+    if seen is None:
+        return list(notices)
+    return [item for item in notices
+            if (_timestamp(item.get("published_at")) or seen) > seen]
 
 
 def _table(page, title, columns, records):
@@ -128,6 +157,15 @@ def build_live_page(role, section, profile, client):
         ]
         return page
 
+    if section == "notifications":
+        notices = load_notifications(client, role)
+        page["title"] = "Notifications"
+        page["summary"] = "Announcements published for your account."
+        page["latest_notification_at"] = notices[0].get("published_at") if notices else None
+        _table(page, "Published announcements", ["Date", "Title", "Announcement"],
+               [[_date(item.get("published_at")), item.get("title", ""), item.get("body", "")] for item in notices])
+        return page
+
     if role == "student":
         courses, _enrollments = _student_courses(client, profile)
         course_by_id = {course["id"]: course for course in courses}
@@ -173,11 +211,6 @@ def build_live_page(role, section, profile, client):
             _table(page, "Results", ["Course", "Grade", "Term", "Published"],
                    [[course_by_id.get(item.get("course_id"), {}).get("name", ""), item.get("grade", ""),
                      item.get("term", ""), "Yes" if item.get("published") else "Pending"] for item in grades])
-        elif section == "notifications":
-            notices = _where(client, "announcements", "published", True)
-            notices.sort(key=lambda item: item.get("published_at") or "", reverse=True)
-            _table(page, "Published announcements", ["Date", "Title", "Announcement"],
-                   [[_date(item.get("published_at")), item.get("title", ""), item.get("body", "")] for item in notices])
         elif section == "invoices":
             invoices = _where(client, "invoices", "student_id", uid)
             _table(page, "Invoices", ["Description", "Amount", "Due date", "Status"],
@@ -471,7 +504,8 @@ def build_live_page(role, section, profile, client):
                 {"name": "title", "label": "Title", "type": "text", "required": True},
                 {"name": "body", "label": "Message", "type": "textarea", "required": True},
                 {"name": "audience", "label": "Audience", "type": "select", "required": True,
-                 "options": [(value, value.title()) for value in ("all", "student", "teacher")]},
+                 "options": [("all", "Everyone"), ("student", "Students"),
+                             ("teacher", "Teachers"), ("hod", "HODs")]},
             ]
         return page
     return page

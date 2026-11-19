@@ -107,12 +107,14 @@ Teacher
 ├── Dashboard
 ├── Classes
 ├── Attendance entry
-└── Results entry
+├── Results entry
+└── Notifications
 
 HOD
 ├── Dashboard
 ├── Department overview
-└── Class and result review
+├── Class and result review
+└── Notifications
 
 Admin
 ├── Dashboard
@@ -145,6 +147,20 @@ Each portal page checks the Supabase token and loads the matching profile. Those
 
 Portal tables show at most 20 records at a time. Each table has its own text filter and previous/next arrows; filtering checks all records loaded for that table and resets to the first page. Supabase reads fetch matching rows in 200-row batches so browser pagination and filtering do not stop at the first batch.
 
+## Notification badge and pop-ups
+
+Students, teachers, and HODs see a bell in the top bar and a red number beside **Notifications** in the menu. The number is how many published announcements (for everyone or for that role) arrived since the account last opened its Notifications page.
+
+```text
+Admin publishes an announcement (audience: everyone, students, teachers, or HODs)
+    → every portal page shows the unread count on the bell and the menu
+    → static/notifications.js asks /notifications/summary for the count every 15 seconds
+    → when a new announcement arrives, the count goes up, the bell rings, and a pop-up shows its title
+    → opening Notifications saves "seen up to here" in notification_reads and the count returns to 0
+```
+
+The seen position is stored per account in Supabase, so it is the same on every device and after signing out. If the `notification_reads` table has not been created yet, the count still works for the current browser session.
+
 ## What the Supabase tables represent
 
 ```text
@@ -160,6 +176,7 @@ grades ── course grades and whether they have been published
 invoices ── student fees, due dates and payment status
 announcements ── published campus notices
 student_requests ── feedback and complaints submitted by students
+notification_reads ── the newest announcement each account has already seen
 ```
 
 The admin Departments page adds academic units and only removes departments that no account or course still uses. The Students & Staff page creates student, teacher, and HOD Auth accounts with matching profiles assigned to a department; student profiles can optionally be tagged with a program and semester. It can also permanently remove those non-admin accounts and their dependent records. Administrator accounts are protected. The admin course page adds courses, schedules classes and exams, assigns teachers, and enrolls students. Synthetic presentation accounts are marked separately from real campus records. The optional seeder can also add operational synthetic courses, teacher assignments, and cohort enrollments so the class, exam, and attendance workflow can be demonstrated. These records are fictional and are not official course offerings or real student/staff data. The student exam datasheet reads from `exams`, while the timetable reads from `class_sessions`.
