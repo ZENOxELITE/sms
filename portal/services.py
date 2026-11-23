@@ -11,7 +11,13 @@ from uuid import UUID
 from dotenv import load_dotenv
 from django.http import Http404
 
-from auth_sessions import delete_session, get_session, save_session, update_session
+from auth_sessions import (
+    delete_session,
+    get_session,
+    remember_identity,
+    save_session,
+    update_session,
+)
 from portal_data import (
     CURRICULUM_PROGRAMS,
     build_live_page,
@@ -35,8 +41,8 @@ class PortalRequestError(Exception):
 PORTALS = {
     "student": {
         "label": "Student",
-        "name": "Aman Ahmed Sheikh",
-        "identifier": "IU2-0324-972",
+        "name": "Student",
+        "identifier": "Student account",
         "faculty": "Faculty of Business Administration",
         "navigation": [
             ("dashboard", "Dashboard"), ("profile", "Profile"),
@@ -48,7 +54,7 @@ PORTALS = {
     },
     "teacher": {
         "label": "Teacher",
-        "name": "Hira Farman",
+        "name": "Teacher",
         "identifier": "Faculty account",
         "faculty": "Faculty of Business Administration",
         "navigation": [
@@ -82,6 +88,8 @@ PORTALS = {
 
 
 ANNOUNCEMENT_AUDIENCES = ("all", "student", "teacher", "hod")
+# How long a verified login is trusted before Supabase is asked again.
+IDENTITY_CACHE_SECONDS = 120
 SEEN_SESSION_KEY = "notifications_seen_at"
 
 
@@ -160,8 +168,21 @@ def _set_authenticated_user(request, session_id):
     if not auth_session:
         return None
     try:
-        auth_client = create_supabase_client()
         expires_at = int(auth_session["expires_at"])
+        identity = auth_session.get("identity")
+        if (
+            identity
+            and expires_at > int(time.time()) + 60
+            and time.monotonic() - identity["verified_at"] < IDENTITY_CACHE_SECONDS
+        ):
+            # Verified moments ago: reuse it instead of asking Supabase again on every click.
+            access_token = str(auth_session["access_token"])
+            request.supabase_user = identity["user"]
+            request.profile = dict(identity["profile"])
+            request.supabase = create_supabase_client(access_token)
+            request.access_token = access_token
+            return request.profile
+        auth_client = create_supabase_client()
         if expires_at <= int(time.time()) + 60:
             refreshed = auth_client.auth.refresh_session(str(auth_session["refresh_token"]))
             refreshed_session = refreshed.session
@@ -198,6 +219,7 @@ def _set_authenticated_user(request, session_id):
         if not profile or profile.get("role") not in PORTALS:
             delete_session(session_id)
             return None
+        remember_identity(session_id, user, profile, time.monotonic())
         request.supabase_user = user
         request.profile = profile
         request.supabase = profile_client
@@ -214,7 +236,9 @@ def _current_portal(request):
     role = profile["role"]
     portal = PORTALS[role].copy()
     portal["name"] = profile.get("full_name") or request.supabase_user.email or portal["name"]
-    portal["identifier"] = profile.get("student_number") or portal["identifier"]
+    portal["identifier"] = (
+        profile.get("student_number") or profile.get("department") or portal["identifier"]
+    )
     portal["faculty"] = profile.get("department") or portal["faculty"]
     return role, portal
 
@@ -353,7 +377,7 @@ def _require_active_course(client, course_id):
         raise ValueError("Choose a course from the course list.")
     if courses[0].get("is_sample"):
         raise ValueError(
-            "Unofficial sample curriculum entries cannot be scheduled, assigned, or enrolled."
+            "This course is not open for scheduling or enrollment."
         )
 
 
