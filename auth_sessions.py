@@ -34,6 +34,17 @@ def update_session(session_id: str, access_token: str, refresh_token: str, expir
             }
 
 
+def remember_identity(session_id: str, user: object, profile: dict, verified_at: float) -> None:
+    """Keep the last verified user and profile so the next clicks skip two Supabase calls."""
+    with _lock:
+        if session_id in _sessions:
+            _sessions[session_id]["identity"] = {
+                "user": user,
+                "profile": dict(profile),
+                "verified_at": verified_at,
+            }
+
+
 def delete_session(session_id: str | None) -> None:
     if session_id:
         with _lock:

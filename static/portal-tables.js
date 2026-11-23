@@ -5,6 +5,7 @@
 
   function initializePortalTables(container) {
     container.querySelectorAll(".portal-card").forEach((card) => {
+      if (card.dataset && card.dataset.serverPaged !== undefined) return;
       const body = card.querySelector(".portal-table tbody");
       if (!body) return;
 

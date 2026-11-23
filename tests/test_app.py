@@ -431,7 +431,7 @@ class PortalAppTests(unittest.TestCase):
         page = {
             "key": "attendance",
             "title": "Attendance",
-            "summary": "Live information from Supabase.",
+            "summary": "Your attendance for each class session.",
             "metrics": [],
             "columns": ["Course"],
             "rows": [["Live course"]],
@@ -453,12 +453,13 @@ class PortalAppTests(unittest.TestCase):
                 self._set_session(auth_session_id="test-session")
                 response = self.client.get("/portal/student/attendance")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Live Supabase data", response.content)
+        self.assertNotIn(b"Supabase", response.content)
         self.assertIn(b"Live course", response.content)
         self.assertIn(b"Schedule an exam", response.content)
         self.assertIn(b"Scheduled exams", response.content)
         self.assertEqual(response.content.count(b'class="table-search"'), 2)
-        self.assertEqual(response.content.count(b'data-page-change='), 4)
+        self.assertEqual(response.content.count(b'data-page-change='), 2)
+        self.assertIn(b'data-server-paged', response.content)
 
     def test_student_feedback_submits_to_supabase_client(self):
         profile = {"id": "student-1", "role": "student", "full_name": "Live Student"}
@@ -568,7 +569,7 @@ class PortalAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(database.writes, [])
-        self.assertIn(b"cannot be scheduled, assigned, or enrolled", response.content)
+        self.assertIn(b"This course is not open for scheduling or enrollment.", response.content)
 
     def test_admin_can_add_a_course_to_a_program_semester(self):
         profile = {"id": "admin-1", "role": "admin", "full_name": "Test Admin"}
@@ -628,8 +629,9 @@ class PortalAppTests(unittest.TestCase):
 
         page = build_live_page("admin", "courses", {"id": "admin-1"}, client)
 
-        self.assertIn("Sample curriculum (unofficial)", page["rows"][0])
-        self.assertIn("not official or complete Ziauddin study schemes", page["curriculum_note"])
+        self.assertEqual(page["table_title"], "Courses")
+        self.assertEqual(page["rows"][0][0], "Programming Fundamentals")
+        self.assertNotIn("curriculum_note", page)
 
     def test_admin_course_page_offers_synthetic_courses_for_demo_operations(self):
         client = FakeReadClient({
@@ -654,12 +656,12 @@ class PortalAppTests(unittest.TestCase):
 
         page = build_live_page("admin", "courses", {"id": "admin-1"}, client)
 
-        self.assertIn("Synthetic presentation sample", page["rows"][1])
+        self.assertNotIn("Entry type", page["columns"])
         self.assertEqual(page["extra_forms"][0]["ready"], True)
         self.assertEqual(page["extra_forms"][2]["ready"], True)
         self.assertEqual(page["extra_forms"][3]["ready"], True)
-        self.assertIn("(synthetic sample)", page["extra_forms"][0]["fields"][0]["options"][0][1])
-        self.assertIn("fictional", page["curriculum_note"])
+        self.assertEqual(page["extra_forms"][0]["fields"][0]["options"][0][1],
+                         "DEMO-CYS-S01 - Programming Fundamentals")
 
     def test_admin_can_create_department_assigned_account(self):
         profile = {"id": "admin-1", "role": "admin", "full_name": "Test Admin"}
@@ -734,9 +736,9 @@ class PortalAppTests(unittest.TestCase):
             fields["program"]["options"],
         )
         self.assertIn(("2", "Semester 2"), fields["semester"]["options"])
-        self.assertIn("Synthetic sample", page["rows"][1])
+        self.assertNotIn("Record type", page["columns"])
 
-    def test_demo_student_page_discloses_synthetic_data(self):
+    def test_demo_student_page_has_no_demo_disclaimer(self):
         page = build_live_page(
             "student",
             "profile",
@@ -752,7 +754,7 @@ class PortalAppTests(unittest.TestCase):
             FakeReadClient({}),
         )
 
-        self.assertIn("synthetic presentation account", page["record_note"])
+        self.assertNotIn("record_note", page)
 
     def test_admin_user_page_loads_profiles_past_first_page(self):
         profiles = [
@@ -1111,8 +1113,8 @@ class PortalAppTests(unittest.TestCase):
             FakeReadClient({"courses": []}),
         )
 
-        self.assertIn("Software Engineering department", page["record_note"])
-        self.assertIn("same department name", page["record_note"])
+        self.assertEqual(page["record_note"],
+                         "No courses are listed under the Software Engineering department yet.")
 
     def _signed_in(self, profile, database):
         user = SimpleNamespace(id=profile["id"], email=f'{profile["role"]}@example.test')
@@ -1124,6 +1126,92 @@ class PortalAppTests(unittest.TestCase):
             return profile
 
         return patch.object(app_module, "_set_authenticated_user", side_effect=set_test_user)
+
+    def test_project_map_is_admin_only(self):
+        response = self.client.get("/map")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._location(response), "/")
+
+        student = {"id": "student-1", "role": "student", "full_name": "Test Student"}
+        with self._signed_in(student, FakeReadClient({})):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.get("/map")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._location(response), "/portal/student/dashboard")
+
+        admin = {"id": "admin-1", "role": "admin", "full_name": "Test Admin"}
+        with self._signed_in(admin, FakeReadClient({})):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.get("/map")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Back to portal", response.content)
+
+    def test_project_map_link_shows_only_for_admin(self):
+        for role, expected in (("student", False), ("teacher", False), ("hod", False), ("admin", True)):
+            with self.subTest(role=role):
+                profile = {"id": f"{role}-1", "role": role, "full_name": "Test"}
+                with self._signed_in(profile, FakeReadClient({})):
+                    self._set_session(auth_session_id="test-session")
+                    response = self.client.get(f"/portal/{role}/dashboard")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(b'href="/map"' in response.content, expected)
+
+    def test_recent_login_check_is_reused_without_calling_supabase(self):
+        from auth_sessions import remember_identity, save_session
+        session_id = save_session("access", "refresh", int(time.time()) + 3600, "student-1")
+        profile = {"id": "student-1", "role": "student", "full_name": "Cached Student"}
+        user = SimpleNamespace(id="student-1", email="student@example.test")
+        remember_identity(session_id, user, profile, time.monotonic())
+        request = SimpleNamespace()
+        try:
+            with patch.object(app_module, "create_supabase_client", wraps=app_module.create_supabase_client) as factory:
+                with patch.dict(os.environ, {"SUPABASE_URL": "https://example.test", "SUPABASE_ANON_KEY": "anon"}):
+                    result = app_module._set_authenticated_user(request, session_id)
+            self.assertEqual(result["full_name"], "Cached Student")
+            self.assertIs(request.supabase_user, user)
+            factory.assert_called_once_with("access")
+        finally:
+            delete_session(session_id)
+
+    def _admin_users_response(self, path):
+        admin = {"id": "admin-1", "role": "admin", "full_name": "Test Admin"}
+        profiles = [{"id": f"s{index}", "full_name": f"Student {index:03d}", "username": f"student{index}",
+                     "role": "student", "department": "Computer Science"} for index in range(1, 46)]
+        database = FakeReadClient({"profiles": profiles, "departments": [{"name": "Computer Science"}]})
+        with self._signed_in(admin, database):
+            self._set_session(auth_session_id="test-session")
+            return self.client.get(path)
+
+    def test_large_tables_send_one_page_from_the_server(self):
+        response = self._admin_users_response("/portal/admin/users")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.count(b'data-label="Name"'), 20)
+        self.assertIn(b"1&ndash;20 of 45", response.content)
+        self.assertIn(b'href="?page=2"', response.content)
+
+        response = self._admin_users_response("/portal/admin/users?page=3")
+        self.assertEqual(response.content.count(b'data-label="Name"'), 5)
+        self.assertIn(b"41&ndash;45 of 45", response.content)
+        self.assertNotIn(b'href="?page=4"', response.content)
+
+    def test_table_search_filters_on_the_server(self):
+        response = self._admin_users_response("/portal/admin/users?q=student+042")
+        self.assertEqual(response.content.count(b'data-label="Name"'), 1)
+        self.assertIn(b"Student 042", response.content)
+        self.assertIn(b"Clear search", response.content)
+        self.assertIn(b'value="student 042"', response.content)
+
+        response = self._admin_users_response("/portal/admin/users?q=nobody&page=abc")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"No records match your search.", response.content)
+
+    def test_phone_menu_holds_navigation_and_sign_out(self):
+        response = self._admin_users_response("/portal/admin/users")
+        self.assertIn(b'class="menu-toggle" aria-expanded="false" aria-controls="portal-menu"', response.content)
+        self.assertIn(b'id="portal-menu"', response.content)
+        menu = response.content.split(b'id="portal-menu"', 1)[1].split(b"</nav>", 1)[0]
+        self.assertIn(b"Sign out", menu)
+        self.assertIn(b"Project map", menu)
 
     ANNOUNCEMENTS = [
         {"id": 1, "title": "Old notice", "body": "Seen already", "audience": "all",

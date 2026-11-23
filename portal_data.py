@@ -15,7 +15,7 @@ def _read(client, table, columns="*"):
 def _read_filtered(client, table, columns="*", filters=()):
     rows = []
     offset = 0
-    page_size = 200
+    page_size = 1000  # Supabase returns at most 1000 rows per request
     while True:
         query = client.table(table).select(columns)
         for operator, column, value in filters:
@@ -59,6 +59,30 @@ def _parallel_filtered_reads(client, *queries):
             for table, columns, filters in queries
         ]
         return [future.result() for future in futures]
+
+
+SECTION_SUMMARIES = {
+    "dashboard": "An overview of your courses and upcoming activity.",
+    "teacher:dashboard": "Your assigned courses and enrolled students.",
+    "hod:dashboard": "Courses and enrollments across your department.",
+    "admin:dashboard": "Student and staff accounts and courses across the campus.",
+    "attendance": "Your attendance for each class session.",
+    "results": "Your course grades by term.",
+    "datasheet": "Dates and rooms for your upcoming exams.",
+    "timetable": "Your scheduled classes.",
+    "invoices": "Your fees, due dates, and payment status.",
+    "feedback": "Share feedback with the administration.",
+    "complaints": "Submit a complaint and track its status.",
+    "classes": "Courses assigned to you this term.",
+    "attendance-entry": "Mark attendance for your class sessions.",
+    "results-entry": "Enter grades for your students.",
+    "department": "Courses and enrollments in your department.",
+    "review": "Class sessions across your department.",
+    "users": "Create and manage student and staff accounts.",
+    "departments": "Academic departments used for accounts and courses.",
+    "courses": "Add courses, schedule classes and exams, and manage enrollments.",
+    "announcements": "Publish notices to students and staff.",
+}
 
 
 def load_notifications(client, role):
@@ -132,18 +156,13 @@ def build_live_page(role, section, profile, client):
     page = {
         "key": section,
         "title": section.replace("-", " ").replace("_", " ").title(),
-        "summary": "Live information from the Supabase project.",
+        "summary": SECTION_SUMMARIES.get(f"{role}:{section}") or SECTION_SUMMARIES.get(section, ""),
         "metrics": [],
         "columns": [],
         "rows": [],
         "form_fields": [],
         "form_title": "",
     }
-    if profile.get("is_demo"):
-        page["record_note"] = (
-            "This login belongs to a synthetic presentation account. "
-            "Its records are for demonstration and are not real student or staff data."
-        )
     uid = profile["id"]
     if section == "profile":
         page["title"] = "Student profile"
@@ -284,13 +303,12 @@ def build_live_page(role, section, profile, client):
         if not courses:
             if department:
                 page["record_note"] = (
-                    f"No courses are assigned to the {department} department. "
-                    "Course and enrollment visibility requires courses to use the same department name as your HOD account."
+                    f"No courses are listed under the {department} department yet."
                 )
             else:
                 page["record_note"] = (
-                    "No department is assigned to this HOD account. "
-                    "Ask an administrator to assign a department before reviewing courses and enrollments."
+                    "Your account is not linked to a department yet. "
+                    "Please contact the administrator."
                 )
         ids = [item["id"] for item in courses]
         if section in ("dashboard", "department"):
@@ -321,12 +339,11 @@ def build_live_page(role, section, profile, client):
                 )
             else:
                 profiles = _read(client, "profiles", "id,full_name,username,role,department,student_number,program,semester,is_demo")
-            _table(page, "Campus accounts", ["Name", "Username", "Role", "Department", "Student ID", "Program", "Semester", "Record type"],
+            _table(page, "Campus accounts", ["Name", "Username", "Role", "Department", "Student ID", "Program", "Semester"],
                    [[item.get("full_name", ""), item.get("username") or "", item.get("role", ""),
                      item.get("department") or "",
                      item.get("student_number") or "", item.get("program") or "",
-                     item.get("semester") or "",
-                     "Synthetic sample" if item.get("is_demo") else "Campus record"]
+                     item.get("semester") or ""]
                     for item in profiles])
             if section == "users":
                 page["row_actions"] = [
@@ -394,8 +411,8 @@ def build_live_page(role, section, profile, client):
             )
             _table(
                 page,
-                "Courses and sample curricula",
-                ["Course", "Code", "Program", "Semester", "Department", "Credits", "Entry type"],
+                "Courses",
+                ["Course", "Code", "Program", "Semester", "Department", "Credits"],
                 [[
                     item.get("name", ""),
                     item.get("code", ""),
@@ -403,15 +420,7 @@ def build_live_page(role, section, profile, client):
                     f'Semester {item["semester"]}' if item.get("semester") else "-",
                     item.get("department", ""),
                     item.get("credits", ""),
-                    "Sample curriculum (unofficial)" if item.get("is_sample")
-                    else "Synthetic presentation sample" if item.get("is_demo")
-                    else "Campus course",
                 ] for item in courses],
-            )
-            page["curriculum_note"] = (
-                "Sample curriculum entries are illustrative only, not official or complete Ziauddin study schemes. "
-                "They are excluded from class scheduling, teacher assignment, and student enrollment. "
-                "Synthetic presentation records are fictional, not real campus data."
             )
             page["form_title"] = "Add a course"
             page["form_action"] = "add-course"
@@ -430,8 +439,7 @@ def build_live_page(role, section, profile, client):
             teachers = [item for item in profiles if item.get("role") == "teacher"]
             active_courses = [item for item in courses if not item.get("is_sample")]
             course_options = [
-                (str(item["id"]), f'{item["code"]} - {item["name"]}'
-                 + (" (synthetic sample)" if item.get("is_demo") else ""))
+                (str(item["id"]), f'{item["code"]} - {item["name"]}')
                 for item in active_courses
             ]
             page["extra_forms"] = [

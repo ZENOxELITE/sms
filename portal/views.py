@@ -1,4 +1,6 @@
 import logging
+from math import ceil
+from urllib.parse import urlencode
 from concurrent.futures import ThreadPoolExecutor
 
 from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
@@ -11,6 +13,54 @@ import portal.services as services
 
 
 logger = logging.getLogger("sms")
+
+
+TABLE_PAGE_SIZE = 20
+
+
+def _paginate_table(page, query, page_number):
+    """Send only one page of the main table to the browser, filtered on the server."""
+    rows = page.get("rows") or []
+    actions = page.get("row_actions")
+    indexes = list(range(len(rows)))
+    if query:
+        needle = query.casefold()
+        indexes = [
+            index for index in indexes
+            if needle in " ".join(str(cell) for cell in rows[index]).casefold()
+        ]
+    total = len(indexes)
+    pages = max(1, ceil(total / TABLE_PAGE_SIZE))
+    number = min(max(1, page_number), pages)
+    start = (number - 1) * TABLE_PAGE_SIZE
+    chosen = indexes[start:start + TABLE_PAGE_SIZE]
+    page["rows"] = [rows[index] for index in chosen]
+    if actions:
+        page["row_actions"] = [actions[index] for index in chosen]
+
+    def link(target):
+        params = {"page": target}
+        if query:
+            params["q"] = query
+        return "?" + urlencode(params)
+
+    page["pager"] = {
+        "query": query,
+        "page": number,
+        "pages": pages,
+        "total": total,
+        "first": start + 1 if total else 0,
+        "last": start + len(chosen),
+        "prev_url": link(number - 1) if number > 1 else None,
+        "next_url": link(number + 1) if number < pages else None,
+    }
+
+
+def _page_number(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 1
 
 
 def _redirect(name, **path_params):
@@ -122,7 +172,7 @@ def password_reset(request):
         return _redirect("login")
     services.flash(
         request,
-        "If the account exists, Supabase will send a password reset email.",
+        "If an account exists for that email, a password reset link has been sent.",
         "success",
     )
     return _redirect("login")
@@ -216,17 +266,26 @@ def portal_page(request, role, section):
         page = {
             "key": section,
             "title": section.replace("-", " ").title(),
-            "summary": "Supabase data could not be loaded.",
+            "summary": "",
             "metrics": [],
             "columns": [],
             "rows": [],
             "form_fields": [],
             "form_title": "",
-            "data_error": "Could not load this page's data. Check your Supabase schema, account access, and Row Level Security policies.",
+            "data_error": "This page could not be loaded right now. Please refresh or try again in a moment.",
         }
         status_code = 503
     else:
         status_code = 200
+    if page.get("columns"):
+        _paginate_table(
+            page,
+            str(request.GET.get("q", "")).strip()[:100],
+            _page_number(request.GET.get("page")),
+        )
+    default_title = section.replace("-", " ").replace("_", " ").title()
+    if page.get("title") == default_title:
+        page["title"] = dict(portal["navigation"]).get(section, default_title)
     return render(
         request,
         "portal.html",
@@ -256,6 +315,11 @@ def notification_summary(request):
 
 @require_GET
 def map_page(request):
+    profile = _authenticated_profile(request)
+    if not profile:
+        return _redirect("login")
+    if profile["role"] != "admin":
+        return _redirect("portal_page", role=profile["role"], section="dashboard")
     return render(
         request,
         "map.html",

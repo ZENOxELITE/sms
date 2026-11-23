@@ -35,11 +35,15 @@
       </a>
       <script type="application/json" id="notification-latest">{{ notifications.latest|tojson }}</script>
       {% endif %}
-      <a href="{{ url_for('map_page') }}">Project map</a>
-      <form action="{{ url_for('logout') }}" method="post">
+      {% if role == 'admin' %}<a class="desktop-only" href="{{ url_for('map_page') }}">Project map</a>{% endif %}
+      <form class="desktop-only" action="{{ url_for('logout') }}" method="post">
         <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
         <button type="submit" class="topbar-link">Sign out</button>
       </form>
+      <button type="button" class="menu-toggle" aria-expanded="false" aria-controls="portal-menu">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z"/></svg>
+        <span>Menu</span>
+      </button>
     </div>
   </header>
   <div class="breadcrumb"><a href="{{ url_for('portal_home', role=role) }}">Home</a><span>›</span>{{ page.title }}</div>
@@ -51,7 +55,7 @@
         <strong>{{ portal.name }}</strong>
         <small>{{ portal.identifier }}</small>
       </section>
-      <nav class="side-nav" aria-label="{{ portal.label }} portal navigation">
+      <nav class="side-nav" id="portal-menu" aria-label="{{ portal.label }} portal navigation">
         {% for key, label in portal.navigation %}
         <a class="{{ 'selected' if page.key == key else '' }}" href="{{ url_for('portal_page', role=role, section=key) }}">
           <span>{{ label[0] }}</span>{{ label }}
@@ -60,6 +64,13 @@
           {% endif %}
         </a>
         {% endfor %}
+        <div class="menu-extra">
+          {% if role == 'admin' %}<a href="{{ url_for('map_page') }}"><span>M</span>Project map</a>{% endif %}
+          <form action="{{ url_for('logout') }}" method="post">
+            <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+            <button type="submit"><span>S</span>Sign out</button>
+          </form>
+        </div>
       </nav>
     </aside>
 
@@ -68,9 +79,8 @@
         <div>
           <p class="eyebrow">{{ portal.label|upper }} PORTAL</p>
           <h1>{{ page.title }}</h1>
-          <p>{{ page.summary }}</p>
+          {% if page.summary %}<p>{{ page.summary }}</p>{% endif %}
         </div>
-        <span class="live-badge">Live Supabase data</span>
       </div>
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
@@ -79,9 +89,6 @@
       {% endwith %}
       {% if page.data_error %}
       <p class="flash-message error" role="alert">{{ page.data_error }}</p>
-      {% endif %}
-      {% if page.curriculum_note %}
-      <p class="flash-message">{{ page.curriculum_note }}</p>
       {% endif %}
       {% if page.record_note %}
       <p class="flash-message">{{ page.record_note }}</p>
@@ -96,18 +103,27 @@
       {% endif %}
 
       {% if page.columns %}
-      <section class="portal-card">
+      {% set pager = page.pager %}
+      <section class="portal-card" data-server-paged>
         <div class="portal-card-heading">
           <h2>{{ page.table_title }}</h2>
           <div class="table-tools">
-            <input class="table-search" type="search" placeholder="Filter this table" aria-label="Filter {{ page.table_title }}">
-            <div class="table-pagination" aria-label="{{ page.table_title }} pagination">
-              <button type="button" data-page-change="-1" aria-label="Previous page">&larr;</button>
-              <span class="table-page-status" role="status" aria-live="polite"></span>
-              <button type="button" data-page-change="1" aria-label="Next page">&rarr;</button>
+            <form class="table-search-form" method="get" role="search">
+              <input class="table-search" type="search" name="q" value="{{ pager.query if pager else '' }}" placeholder="Search this table" aria-label="Search {{ page.table_title }}">
+              <button type="submit" class="table-search-button">Search</button>
+            </form>
+            {% if pager %}
+            <div class="table-pagination" aria-label="{{ page.table_title }} pages">
+              {% if pager.prev_url %}<a class="page-link" href="{{ pager.prev_url }}" aria-label="Previous page">&larr;</a>{% else %}<span class="page-link disabled" aria-hidden="true">&larr;</span>{% endif %}
+              <span class="table-page-status" role="status">{% if pager.total %}{{ pager.first }}&ndash;{{ pager.last }} of {{ pager.total }}{% else %}0 records{% endif %}</span>
+              {% if pager.next_url %}<a class="page-link" href="{{ pager.next_url }}" aria-label="Next page">&rarr;</a>{% else %}<span class="page-link disabled" aria-hidden="true">&rarr;</span>{% endif %}
             </div>
+            {% endif %}
           </div>
         </div>
+        {% if pager and pager.query %}
+        <p class="search-note">Results for &ldquo;{{ pager.query }}&rdquo; &middot; <a href="?">Clear search</a></p>
+        {% endif %}
         <div class="table-scroll">
           <table class="portal-table">
             <thead>
@@ -138,9 +154,8 @@
               </tr>
               {% endfor %}
               {% if not page.rows %}
-              <tr class="empty-state"><td colspan="{{ page.columns|length + (1 if page.row_actions else 0) }}">No records are available for this account yet.</td></tr>
+              <tr class="empty-state"><td colspan="{{ page.columns|length + (1 if page.row_actions else 0) }}">{% if pager and pager.query %}No records match your search.{% else %}No records are available for this account yet.{% endif %}</td></tr>
               {% endif %}
-              <tr class="filter-empty" hidden><td colspan="{{ page.columns|length + (1 if page.row_actions else 0) }}">No records match this filter.</td></tr>
             </tbody>
           </table>
         </div>
@@ -231,7 +246,7 @@
           <button class="button-primary" type="submit">Save</button>
         </form>
         {% else %}
-        <p class="portal-note">Add courses and create student or teacher profiles before using this action.</p>
+        <p class="portal-note">Add a course and at least one student or teacher account first.</p>
         {% endif %}
       </section>
       {% endfor %}
@@ -249,17 +264,25 @@
         </div>
       </section>
       {% endif %}
-      <p class="portal-note">Information shown here is read from the connected Supabase project and restricted by your account role.</p>
     </main>
   </div>
   {% if notifications is not none %}
   <div class="notification-toasts" data-notification-toasts aria-live="polite"></div>
   {% endif %}
   <script>
-    const selectedNav = document.querySelector(".side-nav a.selected");
-    const sideNav = document.querySelector(".side-nav");
-    if (selectedNav && sideNav && sideNav.scrollWidth > sideNav.clientWidth) {
-      sideNav.scrollLeft = selectedNav.offsetLeft - (sideNav.clientWidth - selectedNav.offsetWidth) / 2;
+    const menuToggle = document.querySelector(".menu-toggle");
+    if (menuToggle) {
+      const setMenu = (open) => {
+        document.body.classList.toggle("menu-open", open);
+        menuToggle.setAttribute("aria-expanded", String(open));
+      };
+      menuToggle.addEventListener("click", () => setMenu(!document.body.classList.contains("menu-open")));
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && document.body.classList.contains("menu-open")) {
+          setMenu(false);
+          menuToggle.focus();
+        }
+      });
     }
     const accountRole = document.querySelector("#role");
     const studentNumber = document.querySelector("#student_number");
