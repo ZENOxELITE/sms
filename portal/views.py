@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
@@ -191,10 +192,25 @@ def portal_page(request, role, section):
                 "Could not save this change. Check your access and database policies, then try again.",
                 "error",
             )
+    summary = None
     try:
-        page = services.build_live_page(
-            role, section, request.profile, request.supabase
-        )
+        if section == "notifications":
+            page = services.build_live_page(
+                role, section, request.profile, request.supabase
+            )
+            services.mark_notifications_seen(
+                request, page.get("latest_notification_at")
+            )
+            summary = {"unread": 0, "latest": []}
+        else:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                summary_future = executor.submit(
+                    services.notification_summary, request, role
+                )
+                page = services.build_live_page(
+                    role, section, request.profile, request.supabase
+                )
+                summary = summary_future.result()
     except Exception:
         logger.exception("Could not load Supabase data for portal page.")
         page = {
@@ -218,10 +234,24 @@ def portal_page(request, role, section):
             "role": role,
             "portal": portal,
             "page": page,
+            "notifications": summary,
             "csrf_token": get_token(request),
         },
         status=status_code,
     )
+
+
+@require_GET
+def notification_summary(request):
+    profile = services._set_authenticated_user(
+        request, request.session.get("auth_session_id")
+    )
+    if not profile:
+        return JsonResponse({"status": "signed_out"}, status=401)
+    summary = services.notification_summary(request, profile["role"])
+    if summary is None:
+        return JsonResponse({"status": "unavailable", "unread": 0, "latest": []})
+    return JsonResponse({"status": "ok", **summary})
 
 
 @require_GET

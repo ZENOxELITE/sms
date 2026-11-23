@@ -86,7 +86,7 @@ if errorlevel 1 (
 )
 
 echo [6/7] Running portal table tests...
-node --test tests\test_portal_tables.js
+node --test tests\test_portal_tables.js tests\test_notifications.js
 if errorlevel 1 goto failed
 
 echo [7/7] Checking Supabase connection...
