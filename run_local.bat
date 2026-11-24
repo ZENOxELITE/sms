@@ -20,13 +20,13 @@ echo.
 echo   PREPARING LAUNCH SEQUENCE
 echo.
 
-set "bar="
-for /L %%i in (0,1,10) do (
-    set /a percent=%%i*10 >nul
-    if %%i GTR 0 set "bar=!bar!##"
-    echo   [!bar!] !percent!%%
-    if %%i LSS 10 ping -n 2 127.0.0.1 >nul
-)
+@REM  set "bar="
+@REM  for /L %%i in (0,1,10) do (
+@REM      set /a percent=%%i*10 >nul
+@REM      if %%i GTR 0 set "bar=!bar!##"
+@REM      echo   [!bar!] !percent!%%
+@REM      if %%i LSS 10 ping -n 2 127.0.0.1 >nul
+@REM  )
 echo.
 echo   SYSTEM ANALYSIS COMPLETE
 echo.

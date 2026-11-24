@@ -34,14 +34,19 @@ def shared_http_client() -> httpx.Client:
     with _http_lock:
         if _http_client is None:
             _http_client = httpx.Client(
-                http2=True,
+                # HTTP/1.1: idle HTTP/2 connections can fail on reuse (WinError 10035
+                # on Windows). Limits live on the transport because it is set explicitly.
+                transport=httpx.HTTPTransport(
+                    http2=False,
+                    retries=1,
+                    limits=httpx.Limits(
+                        max_connections=40,
+                        max_keepalive_connections=20,
+                        keepalive_expiry=60,
+                    ),
+                ),
                 follow_redirects=True,
                 timeout=httpx.Timeout(20.0, connect=10.0),
-                limits=httpx.Limits(
-                    max_connections=40,
-                    max_keepalive_connections=20,
-                    keepalive_expiry=120,
-                ),
             )
         return _http_client
 

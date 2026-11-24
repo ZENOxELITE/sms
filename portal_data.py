@@ -77,12 +77,15 @@ SECTION_SUMMARIES = {
     "attendance-entry": "Mark attendance for your class sessions.",
     "results-entry": "Enter grades for your students.",
     "department": "Courses and enrollments in your department.",
-    "review": "Class sessions across your department.",
+    "review": "Class sessions and results across your department.",
     "users": "Create and manage student and staff accounts.",
     "departments": "Academic departments used for accounts and courses.",
     "courses": "Add courses, schedule classes and exams, and manage enrollments.",
     "announcements": "Publish notices to students and staff.",
 }
+
+
+GRADE_VALUES = ("A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "F")
 
 
 def load_notifications(client, role):
@@ -152,7 +155,56 @@ def _enrolled_students(client, course_ids):
     return enrollments, profile_lookup
 
 
-def build_live_page(role, section, profile, client):
+ATTENDANCE_STATUSES = ("present", "absent", "late", "excused")
+
+
+def _session_label(session, course_by_id):
+    course = course_by_id.get(session["course_id"], {})
+    try:
+        when = datetime.fromisoformat(session["starts_at"].replace("Z", "+00:00")).strftime("%a %d %b %Y, %H:%M")
+    except (ValueError, AttributeError):
+        when = str(session.get("starts_at", ""))
+    return f'{when} · {course.get("code", "")} {course.get("name", "")}'.strip()
+
+
+def _attendance_sheet(client, sessions, course_by_id, enrollments, student_lookup, params):
+    """One class roster for a chosen lecture, so a teacher can mark everyone at once."""
+    sessions = sorted(sessions, key=lambda item: item.get("starts_at") or "")
+    by_id = {str(item["id"]): item for item in sessions}
+    selected = by_id.get(str(params.get("session", "")))
+    if selected is None:
+        # Default to the latest lecture that has already started, else the next one.
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        started = [item for item in sessions if (item.get("starts_at") or "")[:19] <= now]
+        selected = started[-1] if started else sessions[0]
+    roster_ids = {row["student_id"] for row in enrollments if row["course_id"] == selected["course_id"]}
+    roster = sorted(
+        (student_lookup[sid] for sid in roster_ids if sid in student_lookup),
+        key=lambda item: (item.get("full_name") or "").casefold(),
+    )
+    marked = {
+        row["student_id"]: row.get("status")
+        for row in _where(client, "attendance_records", "session_id", selected["id"], "student_id,status")
+    }
+    return {
+        "sessions": [(str(item["id"]), _session_label(item, course_by_id)) for item in sessions],
+        "selected": str(selected["id"]),
+        "selected_label": _session_label(selected, course_by_id),
+        "statuses": ATTENDANCE_STATUSES,
+        "already_marked": len([sid for sid in roster_ids if sid in marked]),
+        "students": [
+            {
+                "id": student["id"],
+                "name": student.get("full_name", ""),
+                "number": student.get("student_number") or "",
+                "status": marked.get(student["id"]) or "present",
+            }
+            for student in roster
+        ],
+    }
+
+
+def build_live_page(role, section, profile, client, params=None):
     page = {
         "key": section,
         "title": section.replace("-", " ").replace("_", " ").title(),
@@ -271,6 +323,7 @@ def build_live_page(role, section, profile, client):
                 student = student_lookup.get(enrollment["student_id"])
                 if student and student not in students:
                     students.append(student)
+            students.sort(key=lambda item: (item.get("full_name") or "").casefold())
             page["form_title"] = "Record attendance" if section == "attendance-entry" else "Enter a grade"
             page["form_action"] = section
             page["form_fields"] = [
@@ -291,10 +344,17 @@ def build_live_page(role, section, profile, client):
                 })
             else:
                 page["form_fields"].extend([
-                    {"name": "grade", "label": "Grade", "type": "text", "required": True},
+                    {"name": "grade", "label": "Grade", "type": "select", "required": True,
+                     "options": [(value, value) for value in GRADE_VALUES]},
                     {"name": "term", "label": "Term", "type": "text", "required": True},
+                    {"name": "publish", "label": "Visibility", "type": "select", "required": True,
+                     "options": [("no", "Save as draft"), ("yes", "Publish to student")]},
                 ])
             page["form_ready"] = bool(courses and students and (section != "attendance-entry" or sessions))
+            if section == "attendance-entry" and sessions:
+                page["attendance_sheet"] = _attendance_sheet(
+                    client, sessions, course_by_id, enrollments, student_lookup, params or {}
+                )
         return page
 
     department = profile.get("department")
@@ -317,10 +377,25 @@ def build_live_page(role, section, profile, client):
                    [[item.get("name", ""), item.get("code", ""), item.get("credits", "")] for item in courses])
             page["metrics"] = [("Department courses", str(len(courses))), ("Enrollments", str(len(enrollments)))]
         elif section == "review":
+            course_by_id = {item["id"]: item for item in courses}
             sessions = _course_sessions(client, courses)
+            sessions.sort(key=lambda item: item.get("starts_at") or "", reverse=True)
             _table(page, "Department class sessions", ["Course", "Date", "Location"],
-                   [[next((c.get("name", "") for c in courses if c["id"] == item["course_id"]), ""),
+                   [[course_by_id.get(item["course_id"], {}).get("name", ""),
                      _date(item.get("starts_at")), item.get("location", "")] for item in sessions])
+            grades = _in(client, "grades", "course_id", ids)
+            students = _in(client, "profiles", "id", list({item["student_id"] for item in grades}),
+                           "id,full_name,student_number")
+            student_by_id = {item["id"]: item for item in students}
+            page["extra_tables"] = [{
+                "title": "Department results",
+                "columns": ["Course", "Student", "Grade", "Term", "Status"],
+                "rows": [[course_by_id.get(item.get("course_id"), {}).get("name", ""),
+                          student_by_id.get(item.get("student_id"), {}).get("full_name", ""),
+                          item.get("grade", ""), item.get("term", ""),
+                          "Published" if item.get("published") else "Draft"]
+                         for item in grades],
+            }]
         return page
 
     if role == "admin":
@@ -503,6 +578,7 @@ def build_live_page(role, section, profile, client):
             }]
         elif section == "announcements":
             announcements = _read(client, "announcements", "title,body,audience,published,published_at")
+            announcements.sort(key=lambda item: item.get("published_at") or "", reverse=True)
             _table(page, "Announcements", ["Title", "Audience", "Status", "Published"],
                    [[item.get("title", ""), item.get("audience", ""), "Published" if item.get("published") else "Draft",
                      _date(item.get("published_at"))] for item in announcements])

@@ -246,3 +246,8 @@ button, input, select { font: inherit; }
   .table-search { width: 100%; flex: auto; }
   .table-pagination { justify-content: space-between; }
 }
+.attendance-picker label { display: grid; gap: 6px; max-width: 560px; color: #334155; font-size: 14px; font-weight: 600; }
+.attendance-picker select, .attendance-sheet td select { width: 100%; max-width: 560px; padding: 8px 10px; color: var(--text); background: #fff; border: 1px solid #d2dbe5; border-radius: 4px; font: inherit; font-weight: 400; }
+.attendance-sheet td select { max-width: 160px; }
+.attendance-sheet .button-primary { margin-top: 14px; }
+@media (max-width: 600px) { .attendance-picker select, .attendance-sheet td select { min-height: 44px; font-size: 16px; } }

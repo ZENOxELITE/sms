@@ -8,8 +8,10 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request as URLRequest, urlopen
 from uuid import UUID
 
+import httpx
 from dotenv import load_dotenv
 from django.http import Http404
+from supabase_auth.errors import AuthRetryableError
 
 from auth_sessions import (
     delete_session,
@@ -20,6 +22,7 @@ from auth_sessions import (
 )
 from portal_data import (
     CURRICULUM_PROGRAMS,
+    GRADE_VALUES,
     build_live_page,
     load_notifications,
     unread_notifications,
@@ -163,7 +166,21 @@ def flash(request, message, category="message"):
     request.session["_flashes"] = messages
 
 
+# Network hiccups (a dropped pooled connection, a timeout) are not a reason to sign someone out.
+TRANSIENT_ERRORS = (httpx.TransportError, AuthRetryableError)
+
+
 def _set_authenticated_user(request, session_id):
+    for attempt in range(2):
+        try:
+            return _verify_session(request, session_id)
+        except TRANSIENT_ERRORS as error:
+            logger.warning("Supabase was unreachable while checking a sign-in (attempt %s): %s",
+                           attempt + 1, error)
+    return None
+
+
+def _verify_session(request, session_id):
     auth_session = get_session(session_id)
     if not auth_session:
         return None
@@ -225,6 +242,8 @@ def _set_authenticated_user(request, session_id):
         request.supabase = profile_client
         request.access_token = access_token
         return profile
+    except TRANSIENT_ERRORS:
+        raise
     except Exception:
         logger.exception("Could not validate the current Supabase session.")
         delete_session(session_id)
@@ -347,7 +366,7 @@ def _delete_campus_account(profile_id, access_token):
         data=json.dumps({"profile_id": profile_id}).encode("utf-8"),
         headers={
             "apikey": anon_key,
-            "Authorization": f"******",
+            "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         },
         method="POST",
@@ -401,6 +420,17 @@ def _authenticate_credentials(email, password):
     )
 
 
+ATTENDANCE_STATUSES = ("present", "absent", "late", "excused")
+
+
+def _form_int(form, name, label):
+    """Read a whole number from a form, with a message people can act on."""
+    try:
+        return int(str(form.get(name, "")).strip())
+    except ValueError as error:
+        raise ValueError(f"Choose or enter a valid {label}.") from error
+
+
 def _handle_portal_post(request, role, section, form):
     profile = request.profile
     user = request.supabase_user
@@ -418,31 +448,73 @@ def _handle_portal_post(request, role, section, form):
             "message": message,
         }).execute()
         return "Your request was saved."
+    if role == "teacher" and section == "attendance-entry" and form.get("action") == "attendance-sheet":
+        session_id = _form_int(form, "session_id", "class session")
+        rows = []
+        for key in form.keys():
+            if not key.startswith("status_"):
+                continue
+            student_id = key[len("status_"):]
+            status = str(form.get(key, "")).strip().lower()
+            try:
+                student_id = str(UUID(student_id))
+            except ValueError as error:
+                raise ValueError("The class roster was not recognised. Reload the page and try again.") from error
+            if status not in ATTENDANCE_STATUSES:
+                raise ValueError("Choose present, absent, late, or excused for every student.")
+            rows.append({
+                "session_id": session_id,
+                "student_id": student_id,
+                "marked_by": str(user.id),
+                "status": status,
+            })
+        if not rows:
+            raise ValueError("This class has no enrolled students to mark.")
+        client.table("attendance_records").upsert(
+            rows, on_conflict="session_id,student_id"
+        ).execute()
+        absent = sum(1 for row in rows if row["status"] == "absent")
+        return f"Attendance saved for {len(rows)} students ({absent} absent)."
     if role == "teacher" and section == "attendance-entry":
+        session_id = _form_int(form, "session_id", "class session")
+        student_id = str(form.get("student_id", "")).strip()
+        status = str(form.get("status", "")).strip().lower()
+        if not student_id:
+            raise ValueError("Choose a student.")
+        if status not in ATTENDANCE_STATUSES:
+            raise ValueError("Choose present, absent, late, or excused.")
         client.table("attendance_records").upsert({
-            "session_id": int(form.get("session_id", "")),
-            "student_id": form.get("student_id", ""),
+            "session_id": session_id,
+            "student_id": student_id,
             "marked_by": str(user.id),
-            "status": form.get("status", ""),
+            "status": status,
         }, on_conflict="session_id,student_id").execute()
         return "Attendance was saved."
     if role == "teacher" and section == "results-entry":
-        grade = str(form.get("grade", "")).strip()
+        grade = str(form.get("grade", "")).strip().upper()
         term = str(form.get("term", "")).strip()
         if not grade or not term:
             raise ValueError("Enter a grade and term.")
+        if grade not in GRADE_VALUES:
+            raise ValueError("Choose a grade from the list.")
+        publish = str(form.get("publish", "no")).strip().lower() == "yes"
+        student_id = str(form.get("student_id", "")).strip()
+        if not student_id:
+            raise ValueError("Choose a student.")
         client.table("grades").upsert({
-            "course_id": int(form.get("course_id", "")),
-            "student_id": form.get("student_id", ""),
+            "course_id": _form_int(form, "course_id", "course"),
+            "student_id": student_id,
             "grade": grade,
             "term": term,
-            "published": False,
+            "published": publish,
         }, on_conflict="course_id,student_id,term").execute()
-        return "The grade was saved as unpublished."
+        if publish:
+            return "The grade was published to the student."
+        return "The grade was saved as a draft."
     if role == "admin" and section == "courses":
         action = form.get("action")
         if action == "add-course":
-            credits = int(form.get("credits", ""))
+            credits = _form_int(form, "credits", "credit count")
             name = str(form.get("name", "")).strip()
             code = str(form.get("code", "")).strip().upper()
             department = str(form.get("department", "")).strip()
@@ -477,7 +549,7 @@ def _handle_portal_post(request, role, section, form):
             }).execute()
             return "The course was added."
         if action == "add-session":
-            course_id = int(form.get("course_id", ""))
+            course_id = _form_int(form, "course_id", "course")
             _require_active_course(client, course_id)
             values = {
                 "course_id": course_id,
@@ -497,7 +569,7 @@ def _handle_portal_post(request, role, section, form):
             client.table("class_sessions").insert(values).execute()
             return "The class session was scheduled."
         if action == "add-exam":
-            course_id = int(form.get("course_id", ""))
+            course_id = _form_int(form, "course_id", "course")
             _require_active_course(client, course_id)
             exam = {
                 "course_id": course_id,
@@ -515,7 +587,7 @@ def _handle_portal_post(request, role, section, form):
             client.table("exams").insert(exam).execute()
             return "The exam was scheduled."
         if action == "assign-teacher":
-            course_id = int(form.get("course_id", ""))
+            course_id = _form_int(form, "course_id", "course")
             _require_active_course(client, course_id)
             profile_id = str(form.get("profile_id", "")).strip()
             if not profile_id:
@@ -530,7 +602,7 @@ def _handle_portal_post(request, role, section, form):
             term = str(form.get("term", "")).strip()
             if not student_id or not term:
                 raise ValueError("Choose a student and enter a term.")
-            course_id = int(form.get("course_id", ""))
+            course_id = _form_int(form, "course_id", "course")
             _require_active_course(client, course_id)
             client.table("enrollments").upsert({
                 "course_id": course_id,
