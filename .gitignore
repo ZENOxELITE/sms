@@ -10,3 +10,12 @@ __pycache__/
 staticfiles/
 supabase/.temp/
 Screenshot *.png
+
+# Local-only tools and data scripts (kept on disk, not in the repo)
+.claude/
+Procfile
+scripts/
+tests/test_demo_seed.py
+tests/test_university_timetable.py
+supabase/seed_presentation_rosters.sql
+supabase/reset_app_data.sql
