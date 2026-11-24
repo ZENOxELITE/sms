@@ -1477,6 +1477,14 @@ class PortalAppTests(unittest.TestCase):
         self.assertEqual(database.writes, [])
         self.assertIn(b"Choose present, absent, late, or excused for every student.", response.content)
 
+    def test_student_invoices_show_readable_amount_date_and_status(self):
+        client = FakeReadClient({"invoices": [{
+            "student_id": "student-1", "description": "Tuition fee - November 2026",
+            "amount": 25000.0, "due_date": "2026-11-30", "status": "unpaid",
+        }]})
+        page = build_live_page("student", "invoices", {"id": "student-1"}, client)
+        self.assertEqual(page["rows"], [["Tuition fee - November 2026", "Rs 25,000", "30 Nov 2026", "Unpaid"]])
+
 
 if __name__ == "__main__":
     unittest.main()

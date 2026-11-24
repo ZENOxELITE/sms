@@ -132,6 +132,21 @@ def _date(value):
         return str(value)
 
 
+def _day(value):
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d %b %Y")
+    except ValueError:
+        return str(value or "")
+
+
+def _money(value):
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return str(value or "")
+    return f"Rs {amount:,.0f}" if amount.is_integer() else f"Rs {amount:,.2f}"
+
+
 def _student_courses(client, profile):
     enrollments = _where(client, "enrollments", "student_id", profile["id"], "course_id,term")
     ids = list({row["course_id"] for row in enrollments})
@@ -285,7 +300,8 @@ def build_live_page(role, section, profile, client, params=None):
         elif section == "invoices":
             invoices = _where(client, "invoices", "student_id", uid)
             _table(page, "Invoices", ["Description", "Amount", "Due date", "Status"],
-                   [[item.get("description", ""), item.get("amount", ""), item.get("due_date", ""), item.get("status", "")]
+                   [[item.get("description", ""), _money(item.get("amount")), _day(item.get("due_date")),
+                     (item.get("status") or "").title()]
                     for item in invoices])
         elif section in ("feedback", "complaints"):
             requests = _where(client, "student_requests", "student_id", uid)
