@@ -16,10 +16,11 @@ python manage.py runserver 127.0.0.1:5000
 
 On Windows, double-click [`run_local.bat`](../run_local.bat) to create `.venv` if needed, install Python dependencies, run the Django checks and Python/JavaScript tests, verify the Supabase connection, collect static files, and open the local site. Node.js must be installed for the JavaScript test. The script reads credentials from `.env` and never prints them.
 
-Visit `http://127.0.0.1:5000/health/supabase`. A connected result verifies the REST API is returning JSON from the configured project. Render uses the included `Procfile` to collect static files and start Gunicorn. If a Start Command is set manually in Render, use:
+Visit `http://127.0.0.1:5000/health/supabase`. A connected result verifies the REST API is returning JSON from the configured project. Render reads [`render.yaml`](../render.yaml). If the service is set up by hand in the Render dashboard instead, use:
 
 ```text
-python manage.py collectstatic --noinput && gunicorn sms_project.wsgi:application --bind 0.0.0.0:$PORT
+Build command: pip install -r requirements.txt && python manage.py collectstatic --noinput
+Start command: gunicorn sms_project.wsgi:application --bind 0.0.0.0:$PORT
 ```
 
 On Render, set `SESSION_COOKIE_SECURE=true` so the session and CSRF cookies are sent only over HTTPS.
@@ -40,10 +41,6 @@ The role-policy file replaces the starter policies with role-aware Row Level Sec
 The sample subject names, course codes, semesters, and credits are illustrative only, not official or complete Ziauddin curricula. The website has study-scheme tabs for [BS Cyber Security Technology](https://zu.edu.pk/faculty-of-computing-and-information-sciences/college-of-computing-and-emerging-technologies/department-of-emerging-technologies/bs-cyber-security-technology/) and [BS Software Engineering](https://zu.edu.pk/faculty-of-computing-and-information-sciences/college-of-computing-and-emerging-technologies/department-of-software-engineering/bs-software-engineering/); this project does not copy those official course lists. The requested Software Engineering Technology sample is also not verified as a current Ziauddin degree.
 
 The starter department list focuses on computing and engineering: Computer Science and Information Technology, plus Biomedical, Civil, and Electrical Engineering. These are drawn from academic areas described on the [official Ziauddin University website](https://zu.edu.pk/) and its [College of Engineering & Technology page](https://zu.edu.pk/faculty-of-engineering-science-technology-management/college-of-engineering-technology/). When you rerun the current role-policy SQL, it removes the previous generic starter entries and keeps any other custom department entries you added.
-
-## Reset application data
-
-If you want to start with empty application tables while preserving the database schema and Supabase Auth accounts, first export/backup any records you may need. Then run [`supabase/reset_app_data.sql`](../supabase/reset_app_data.sql) in the Supabase SQL Editor. This permanently clears all rows from the app tables and resets generated numeric IDs. It does **not** delete Supabase Auth users, but it deletes every `profiles` row; those users will not be able to enter a portal until you create a fresh matching profile row for each Auth user.
 
 ## Enable username sign-in
 
@@ -104,35 +101,6 @@ supabase functions deploy admin-create-account --no-verify-jwt
 The function verifies the supplied session with Supabase Auth and checks that the caller's profile role is `admin` before doing anything privileged. The app sends the session token in both the standard `Authorization` header and a dedicated `X-Supabase-User-Access-Token` header; the function accepts either. Deploy the current function code after updating it. Disabling the gateway's JWT check allows the function's own verification to handle projects whose JWT signing keys are not accepted by the gateway. The service-role key stays inside the hosted function; never copy it into `.env`.
 
 The admin opens **Students & Staff** and enters the person's email, full name, username, initial password, role, and department. Student accounts also require a student number; the optional program and semester fields identify a student's cohort. The function confirms the department exists, creates the email-confirmed Auth user, and inserts the matching role profile. If profile creation fails, it attempts to remove the just-created Auth user. The admin should give the initial password to the account holder privately; users can request a reset later using their email.
-
-## Create synthetic demo cohorts
-
-After applying `role_policies.sql`, redeploy `admin-create-account` if using the admin form for program/semester assignment. For the requested dataset of 25 synthetic teachers and 40 synthetic students in each of the 24 program/semester cohorts, run the local seeder:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\seed_demo_accounts.py
-.\.venv\Scripts\python.exe scripts\seed_demo_accounts.py --apply
-```
-
-The first command previews the batch. The second asks for the Supabase service-role key without echoing it and requires the confirmation text `CREATE DEMO DATA`. It creates 985 Auth users and matching profiles tagged by program and semester. Teacher accounts and Cyber Security/Software Engineering Technology student accounts use Computer Science; Software Engineering student accounts use Software Engineering. Names are generated from a fixed set of common first and family names and are not verified against real people; the usernames and `example.invalid` email addresses are synthetic. No real email can be delivered to them, so email-based password resets will not work. Unique passwords are written to `.demo-data\demo_credentials.csv`, which is excluded from Git. Keep that file private; username sign-in requires the username-lookup function to be configured.
-
-If the demo accounts already exist with placeholder names, refresh their profile display names and the names in the private credentials CSV without changing login credentials:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\seed_demo_accounts.py --refresh-names
-```
-
-This command requires the service-role key and the confirmation text `UPDATE DEMO NAMES`. These are still synthetic sample accounts, not actual student or staff records.
-
-These program/semester tags identify demo cohorts only. To enable the scheduling and enrollment examples for a presentation, seed fictional courses, assign the synthetic teachers, and enroll the existing synthetic students:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\seed_demo_accounts.py --seed-academic-data
-```
-
-The command requires the service-role key and the confirmation text `CREATE PRESENTATION RECORDS`. It idempotently creates 24 synthetic operational course records, 24 teacher assignments, and 960 student enrollments. The eight Software Engineering courses and their students are assigned to the `Software Engineering` department; this lets the matching HOD see those courses and enrollments. The remaining sample programs are assigned to Computer Science. Course records are marked and shown as synthetic in the admin portal; they are not official course offerings. The enrollment term is labeled `Fall 2026 (synthetic presentation)`. Rerun the command if a transient error occurs; it upserts by the existing unique keys. It does not schedule class sessions or exams; those can be entered afterwards using the now-enabled admin forms. There is no separate class-roster table in the current schema.
-
-Alternatively, after applying `role_policies.sql` and creating the synthetic demo accounts, open `supabase/seed_presentation_rosters.sql` in the Supabase SQL Editor and run it. It creates or reuses the 24 synthetic program/semester courses, assigns one synthetic teacher to each course, and enrolls the 40 matching synthetic students per course. It moves only synthetic Software Engineering student profiles and courses to the existing `Software Engineering` department; its HOD will then see eight courses and 320 enrollments. The script checks the expected demo cohorts before writing, leaves non-synthetic accounts and courses alone, runs in a transaction, and can be rerun safely. Its final query reports the course, assignment, and enrollment counts. Use this instead of the Python `--seed-academic-data` command; both populate the same presentation records.
 
 To enable account removal, also deploy the admin-only removal function:
 

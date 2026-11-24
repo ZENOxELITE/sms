@@ -21,15 +21,12 @@ sms/
 ├── portal_data.py                 Reads Supabase records for each portal page
 ├── supabase_client.py             Creates Supabase clients from environment settings
 ├── requirements.txt               Python packages needed by the project
-├── project_materials/              Guides, screenshots, and static design concepts
+├── render.yaml                    Render deployment settings
+├── project_materials/              Project guides and logo
 │   ├── HOW_THIS_PROJECT_WORKS.md
 │   ├── PROJECT-MINDMAP.md
 │   ├── SUPABASE_SETUP.md
-│   ├── Screenshot *.png            Original design references
-│   ├── logo_sms.jpg                Project logo reference
-│   └── design-proposal/            Static dashboard concept previews
-├── scripts/
-│   └── seed_demo_accounts.py      Generates optional synthetic demo accounts
+│   └── logo_sms.jpg                Project logo reference
 ├── .env                           Private project URL, public key, existing session secret
 ├── .env.example                   Safe template showing required setting names
 ├── templates/
@@ -45,7 +42,6 @@ sms/
 ├── supabase/
 │   ├── schema.sql                 Tables, columns, indexes, starter RLS
 │   ├── role_policies.sql          Role-aware database access rules
-│   ├── reset_app_data.sql         Clears app records but keeps Auth users/schema
 │   └── functions/
 │       ├── admin-create-account/
 │       │   └── index.ts           Admin-only Auth account and profile setup
@@ -57,7 +53,6 @@ sms/
     └── test_app.py                Local route and auth behavior tests
 ```
 
-The HTML previews in `project_materials/design-proposal/` are design references. The running site uses the templates and styles in `templates/` and `static/`.
 
 ## What happens when someone signs in
 
@@ -192,7 +187,7 @@ $env:DJANGO_DEBUG = "true"
 python manage.py runserver 127.0.0.1:5000
 ```
 
-Open `http://127.0.0.1:5000`. Configure `.env`, deploy the username lookup Edge Function, and set a unique username on each matching `profiles` row. For a new Supabase project, apply `schema.sql` and then `role_policies.sql`; if the earlier tables already exist, apply the updated `role_policies.sql`. Follow [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for the function and secret setup. On Windows, double-click `run_local.bat` to install dependencies, run tests, check Supabase, and start the local server. On Render, the included `Procfile` collects static files and starts Gunicorn. Run Python checks manually with:
+Open `http://127.0.0.1:5000`. Configure `.env`, deploy the username lookup Edge Function, and set a unique username on each matching `profiles` row. For a new Supabase project, apply `schema.sql` and then `role_policies.sql`; if the earlier tables already exist, apply the updated `role_policies.sql`. Follow [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for the function and secret setup. On Windows, double-click `run_local.bat` to install dependencies, run tests, check Supabase, and start the local server. On Render, `render.yaml` collects static files and starts Gunicorn. Run Python checks manually with:
 
 ```powershell
 python -m unittest discover -s tests

@@ -275,7 +275,7 @@ def build_live_page(role, section, profile, client, params=None):
             _table(page, "Attendance records", ["Date", "Course", "Status"],
                    [[_date(session_by_id.get(item.get("session_id"), {}).get("starts_at")),
                      course_by_id.get(session_by_id.get(item.get("session_id"), {}).get("course_id"), {}).get("name", ""),
-                     item.get("status", "")]
+                     (item.get("status") or "").title()]
                     for item in records if item.get("session_id") in session_by_id])
         elif section == "results":
             grades = _where(client, "grades", "student_id", uid)

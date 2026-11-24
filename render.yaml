@@ -1,6 +1,5 @@
 # Render Blueprint for the Student Management System (Django + Supabase).
-# Render reads this file when the service is created or synced as a Blueprint;
-# it does not use the Procfile.
+# Render reads this file when the service is created or synced as a Blueprint.
 services:
   - type: web
     name: sms
