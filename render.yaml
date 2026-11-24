@@ -1,0 +1,24 @@
+# Render Blueprint for the Student Management System (Django + Supabase).
+# Render reads this file when the service is created or synced as a Blueprint;
+# it does not use the Procfile.
+services:
+  - type: web
+    name: sms
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: gunicorn sms_project.wsgi:application --bind 0.0.0.0:$PORT
+    # The login page needs no database call, so a Supabase hiccup will not restart the service.
+    healthCheckPath: /
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      # Secrets: Render asks for these values when the Blueprint is created.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_USERNAME_LOOKUP_SECRET
+        sync: false
