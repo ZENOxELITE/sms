@@ -62,6 +62,9 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+# Serve the current files in static/ even when staticfiles/ was collected from
+# an older version; otherwise the portal loads stale CSS and misses new scripts.
+WHITENOISE_USE_FINDERS = True
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",

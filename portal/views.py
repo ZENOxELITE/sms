@@ -8,6 +8,7 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.middleware.csrf import get_token
+from supabase_auth.errors import AuthApiError
 
 import portal.services as services
 
@@ -68,13 +69,24 @@ def _redirect(name, **path_params):
 
 
 def _authenticated_profile(request):
-    profile = services._set_authenticated_user(
-        request, request.session.get("auth_session_id")
-    )
+    session_id = request.session.get("auth_session_id")
+    profile = services._set_authenticated_user(request, session_id)
     if profile:
         return profile
+    if session_id and services.get_session(session_id):
+        # Still signed in; Supabase just could not be reached. Keep the sign-in.
+        services.flash(
+            request,
+            "The campus database could not be reached. Please try again in a moment.",
+            "error",
+        )
+        return None
     request.session.pop("auth_session_id", None)
-    services.flash(request, "Please sign in with an active campus account.", "error")
+    if session_id:
+        # Only warn people whose sign-in expired, not visitors who never signed in.
+        services.flash(
+            request, "Your session has ended. Please sign in again.", "error"
+        )
     return None
 
 
@@ -142,6 +154,15 @@ def login_submit(request):
         return _redirect(
             "portal_page", role=profile["role"], section="dashboard"
         )
+    except AuthApiError as error:
+        # A wrong password is a normal event, not a server fault: no traceback.
+        logger.info("Supabase rejected a sign-in attempt: %s", error)
+        services.flash(
+            request,
+            "Sign-in failed. Check your email or username and password, then try again.",
+            "error",
+        )
+        return _redirect("login")
     except Exception:
         logger.exception("Supabase sign-in failed.")
         services.flash(
@@ -225,7 +246,12 @@ def portal_page(request, role, section):
                 request, role, section, request.POST
             )
             services.flash(request, message, "success")
-            return _redirect("portal_page", role=role, section=section)
+            response = _redirect("portal_page", role=role, section=section)
+            session_choice = str(request.POST.get("session_id", "")).strip()
+            if request.POST.get("action") == "attendance-sheet" and session_choice.isdigit():
+                # Return to the same lecture the teacher just marked.
+                response["Location"] += "?" + urlencode({"session": session_choice})
+            return response
         except ValueError as error:
             services.flash(request, str(error), "error")
         except services.PortalRequestError as error:
@@ -258,7 +284,7 @@ def portal_page(request, role, section):
                     services.notification_summary, request, role
                 )
                 page = services.build_live_page(
-                    role, section, request.profile, request.supabase
+                    role, section, request.profile, request.supabase, request.GET
                 )
                 summary = summary_future.result()
     except Exception:

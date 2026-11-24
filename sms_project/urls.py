@@ -1,4 +1,6 @@
+from django.templatetags.static import static
 from django.urls import path
+from django.views.generic.base import RedirectView
 
 from portal import views
 
@@ -13,5 +15,6 @@ urlpatterns = [
     path("portal/<str:role>/<str:section>", views.portal_page, name="portal_page"),
     path("notifications/summary", views.notification_summary, name="notification_summary"),
     path("map", views.map_page, name="map_page"),
+    path("favicon.ico", RedirectView.as_view(url=static("logo_sms_smol.jpg"), permanent=True)),
     path("health/supabase", views.supabase_health, name="supabase_health"),
 ]

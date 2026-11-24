@@ -1310,6 +1310,173 @@ class PortalAppTests(unittest.TestCase):
         self.assertEqual(database.writes, [])
         self.assertIn(b"Choose who should receive this announcement.", response.content)
 
+    def test_anonymous_visit_redirects_without_an_error_message(self):
+        response = self.client.get("/portal/student/dashboard", follow=True)
+        self.assertNotIn(b"Please sign in with an active campus account", response.content)
+        self.assertNotIn(b"Your session has ended", response.content)
+
+    def test_wrong_password_is_reported_without_a_traceback(self):
+        from supabase_auth.errors import AuthApiError
+        token = self._csrf()
+        error = AuthApiError("Invalid login credentials", 400, "invalid_credentials")
+        with patch.object(app_module, "_authenticate_credentials", side_effect=error),                 self.assertLogs("sms", level="INFO") as logs:
+            response = self.client.post("/login", data={
+                "csrfmiddlewaretoken": token, "login_method": "email",
+                "identifier": "someone@example.test", "password": "not-the-password",
+            })
+        self.assertEqual(self._location(response), "/")
+        self.assertTrue(all(record.exc_info is None for record in logs.records))
+
+    def test_teacher_attendance_rejects_missing_session_with_a_clear_message(self):
+        profile = {"id": "teacher-1", "role": "teacher", "full_name": "Test Teacher"}
+        database = FakeWriteClient()
+        token = self._csrf()
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.post("/portal/teacher/attendance-entry", data={
+                "csrfmiddlewaretoken": token, "session_id": "",
+                "student_id": "student-1", "status": "present",
+            })
+        self.assertEqual(database.writes, [])
+        self.assertIn(b"Choose or enter a valid class session.", response.content)
+        self.assertNotIn(b"invalid literal", response.content)
+
+    def test_teacher_attendance_rejects_unknown_status(self):
+        profile = {"id": "teacher-1", "role": "teacher", "full_name": "Test Teacher"}
+        database = FakeWriteClient()
+        token = self._csrf()
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.post("/portal/teacher/attendance-entry", data={
+                "csrfmiddlewaretoken": token, "session_id": "4",
+                "student_id": "student-1", "status": "on-holiday",
+            })
+        self.assertEqual(database.writes, [])
+        self.assertIn(b"Choose present, absent, late, or excused.", response.content)
+
+    def test_pages_declare_a_favicon(self):
+        response = self.client.get("/")
+        self.assertIn(b'rel="icon"', response.content)
+        self.assertEqual(self.client.get("/favicon.ico").status_code, 301)
+
+    def test_static_files_come_from_the_current_source(self):
+        from django.conf import settings
+        self.assertTrue(settings.WHITENOISE_USE_FINDERS)
+
+    def _post_grade(self, **fields):
+        profile = {"id": "teacher-1", "role": "teacher", "full_name": "Test Teacher"}
+        database = FakeWriteClient()
+        token = self._csrf()
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.post("/portal/teacher/results-entry", data={
+                "csrfmiddlewaretoken": token, "course_id": "7",
+                "student_id": "student-1", "term": "Fall 2026", **fields,
+            }, follow=True)
+        return database, response
+
+    def test_teacher_can_publish_a_grade_to_the_student(self):
+        database, response = self._post_grade(grade="A", publish="yes")
+        self.assertEqual(database.writes[-1]["published"], True)
+        self.assertIn(b"The grade was published to the student.", response.content)
+
+    def test_teacher_grade_defaults_to_draft(self):
+        database, _response = self._post_grade(grade="b+")
+        self.assertEqual(database.writes[-1]["published"], False)
+        self.assertEqual(database.writes[-1]["grade"], "B+")
+
+    def test_teacher_grade_must_come_from_the_grade_list(self):
+        database, response = self._post_grade(grade="banana", publish="yes")
+        self.assertEqual(database.writes, [])
+        self.assertIn(b"Choose a grade from the list.", response.content)
+
+    def test_hod_review_lists_department_results(self):
+        client = FakeReadClient({
+            "courses": [{"id": 7, "name": "Databases", "code": "DB-1", "credits": 3,
+                         "department": "Computer Science"}],
+            "class_sessions": [],
+            "grades": [{"course_id": 7, "student_id": "s-1", "grade": "A", "term": "Fall 2026",
+                        "published": False}],
+            "profiles": [{"id": "s-1", "full_name": "Sara Khan", "student_number": "CS-1"}],
+        })
+        page = build_live_page("hod", "review", {"id": "hod-1", "department": "Computer Science"}, client)
+        self.assertEqual(page["extra_tables"][0]["rows"],
+                         [["Databases", "Sara Khan", "A", "Fall 2026", "Draft"]])
+
+    def test_admin_announcements_list_newest_first(self):
+        client = FakeReadClient({"announcements": [
+            {"title": "Old", "audience": "all", "published": True, "published_at": "2026-11-01T10:00:00+00:00"},
+            {"title": "New", "audience": "all", "published": True, "published_at": "2026-11-20T10:00:00+00:00"},
+        ]})
+        page = build_live_page("admin", "announcements", {"id": "admin-1"}, client)
+        self.assertEqual([row[0] for row in page["rows"]], ["New", "Old"])
+
+    def test_network_error_while_checking_sign_in_keeps_the_session(self):
+        import httpx
+        from auth_sessions import get_session, save_session
+        session_id = save_session("token", "refresh", int(time.time()) + 3600, "user-1")
+        failing = MagicMock()
+        failing.auth.get_user.side_effect = httpx.ReadError("connection dropped")
+        with patch.object(app_module, "create_supabase_client", return_value=failing):
+            self._set_session(auth_session_id=session_id)
+            response = self.client.get("/portal/student/dashboard", follow=True)
+        self.assertIsNotNone(get_session(session_id))
+        self.assertGreaterEqual(failing.auth.get_user.call_count, 2)  # retried once per check
+        self.assertIn(b"could not be reached", response.content)
+        self.assertEqual(self.client.session.get("auth_session_id"), session_id)
+        delete_session(session_id)
+
+    def test_teacher_attendance_page_offers_a_roster_for_a_lecture(self):
+        client = FakeReadClient({
+            "course_staff": [{"course_id": 7, "profile_id": "teacher-1"}],
+            "courses": [{"id": 7, "name": "Databases", "code": "DB-1", "credits": 3}],
+            "class_sessions": [
+                {"id": 11, "course_id": 7, "starts_at": "2026-11-16T08:30:00+00:00"},
+                {"id": 12, "course_id": 7, "starts_at": "2099-11-18T08:30:00+00:00"},
+            ],
+            "enrollments": [{"course_id": 7, "student_id": "s-2"}, {"course_id": 7, "student_id": "s-1"}],
+            "profiles": [{"id": "s-1", "full_name": "Zara Khan", "student_number": "1"},
+                         {"id": "s-2", "full_name": "Ali Raza", "student_number": "2"}],
+            "attendance_records": [{"session_id": 11, "student_id": "s-1", "status": "absent"}],
+        })
+        page = build_live_page("teacher", "attendance-entry", {"id": "teacher-1"}, client)
+        sheet = page["attendance_sheet"]
+        self.assertEqual(sheet["selected"], "11")  # latest lecture that has started
+        self.assertEqual([s["name"] for s in sheet["students"]], ["Ali Raza", "Zara Khan"])
+        self.assertEqual([s["status"] for s in sheet["students"]], ["present", "absent"])
+        later = build_live_page("teacher", "attendance-entry", {"id": "teacher-1"}, client, {"session": "12"})
+        self.assertEqual(later["attendance_sheet"]["selected"], "12")
+
+    def test_teacher_saves_attendance_for_the_whole_class(self):
+        profile = {"id": "teacher-1", "role": "teacher", "full_name": "Test Teacher"}
+        database = FakeWriteClient()
+        token = self._csrf()
+        first = "11111111-1111-1111-1111-111111111111"
+        second = "22222222-2222-2222-2222-222222222222"
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.post("/portal/teacher/attendance-entry", data={
+                "csrfmiddlewaretoken": token, "action": "attendance-sheet", "session_id": "11",
+                f"status_{first}": "present", f"status_{second}": "absent",
+            })
+        self.assertEqual(response.headers["location"], "/portal/teacher/attendance-entry?session=11")
+        saved = database.writes[-1]
+        self.assertEqual(len(saved), 2)
+        self.assertEqual({row["status"] for row in saved}, {"present", "absent"})
+
+    def test_attendance_sheet_rejects_unknown_status(self):
+        profile = {"id": "teacher-1", "role": "teacher", "full_name": "Test Teacher"}
+        database = FakeWriteClient()
+        token = self._csrf()
+        with self._signed_in(profile, database):
+            self._set_session(auth_session_id="test-session")
+            response = self.client.post("/portal/teacher/attendance-entry", data={
+                "csrfmiddlewaretoken": token, "action": "attendance-sheet", "session_id": "11",
+                "status_11111111-1111-1111-1111-111111111111": "asleep",
+            })
+        self.assertEqual(database.writes, [])
+        self.assertIn(b"Choose present, absent, late, or excused for every student.", response.content)
+
 
 if __name__ == "__main__":
     unittest.main()

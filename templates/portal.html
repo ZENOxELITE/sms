@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Epunda+Sans:wght@400;500;600;700&family=Epunda+Slab:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/jpeg" href="{{ url_for('static', path='logo_sms_smol.jpg') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
   <script src="{{ url_for('static', path='portal-tables.js') }}" defer></script>
   {% if notifications is not none %}
@@ -191,7 +192,61 @@
       </section>
       {% endfor %}
 
-      {% if page.form_fields and page.form_ready != false %}
+      {% if page.attendance_sheet %}
+      {% set sheet = page.attendance_sheet %}
+      <section class="portal-card attendance-sheet">
+        <div class="portal-card-heading">
+          <h2>Class attendance</h2>
+        </div>
+        <form class="attendance-picker" method="get">
+          <label for="attendance-session">Lecture
+            <select id="attendance-session" name="session" onchange="this.form.submit()">
+              {% for value, label in sheet.sessions %}
+              <option value="{{ value }}" {% if value == sheet.selected %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <noscript><button type="submit">Open</button></noscript>
+        </form>
+        <p class="portal-note">
+          {{ sheet.students|length }} students enrolled ·
+          {% if sheet.already_marked %}{{ sheet.already_marked }} already marked; saving updates their records.
+          {% else %}Not marked yet; everyone starts as present.{% endif %}
+        </p>
+        {% if sheet.students %}
+        <form method="post">
+          <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="attendance-sheet">
+          <input type="hidden" name="session_id" value="{{ sheet.selected }}">
+          <div class="table-scroll">
+            <table class="portal-table">
+              <thead><tr><th scope="col">Student</th><th scope="col">Student ID</th><th scope="col">Attendance</th></tr></thead>
+              <tbody>
+                {% for student in sheet.students %}
+                <tr>
+                  <td data-label="Student">{{ student.name }}</td>
+                  <td data-label="Student ID">{{ student.number }}</td>
+                  <td data-label="Attendance">
+                    <select name="status_{{ student.id }}" aria-label="Attendance for {{ student.name }}">
+                      {% for status in sheet.statuses %}
+                      <option value="{{ status }}" {% if status == student.status %}selected{% endif %}>{{ status|title }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <button class="button-primary" type="submit">Save attendance for this lecture</button>
+        </form>
+        {% else %}
+        <p class="portal-note">No students are enrolled in this course yet.</p>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {% if page.form_fields and page.form_ready != false and not page.attendance_sheet %}
       <section class="portal-card portal-form-card">
         <h2>{{ page.form_title }}</h2>
         <form class="portal-form" method="post">
